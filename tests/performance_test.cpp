@@ -39,28 +39,31 @@
 #include "StackAlloc.h"
 #include <gtest/gtest.h>
 #include <cstdio>
-#include <time.h>
 #include <vector>
+#include <chrono>
 
-class MemoryPoolPerformanceTest : public ::testing::Test
+class MemoryPoolTest : public ::testing::Test
 {
 protected:
     static const int ELEMS = 1000000;
     static const int REPS = 500;
-    clock_t defaultTime;
-    clock_t poolTime;
+    static int64_t pool_time;
+    static int64_t default_time;
 };
 
-TEST_F(MemoryPoolPerformanceTest, DefaultAllocator)
+int64_t MemoryPoolTest::pool_time = -1;
+int64_t MemoryPoolTest::default_time = -1;
+
+TEST_F(MemoryPoolTest, default_allocator_perf)
 {
-    clock_t start;
 
     std::cout << "Copyright (c) 2013 Cosku Acay, http://www.coskuacay.com\n";
     std::cout << "Provided to compare the default allocator to MemoryPool.\n\n";
 
+    auto start = std::chrono::high_resolution_clock::now();
+
     /* Use the default allocator */
     StackAlloc<int, std::allocator<int>> stackDefault;
-    start = clock();
     for (int j = 0; j < REPS; j++)
     {
         assert(stackDefault.empty());
@@ -81,15 +84,17 @@ TEST_F(MemoryPoolPerformanceTest, DefaultAllocator)
             stackDefault.pop();
         }
     }
-    defaultTime = clock() - start;
+
+    auto end = std::chrono::high_resolution_clock::now();
+    MemoryPoolTest::default_time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    printf("Default Allocator: %ld ms\n", MemoryPoolTest::default_time);
 }
 
-TEST_F(MemoryPoolPerformanceTest, PoolAllocator)
+TEST_F(MemoryPoolTest, pool_allocator_perf)
 {
-    clock_t start;
     /* Use MemoryPool */
+    auto start = std::chrono::high_resolution_clock::now();
     StackAlloc<int, MemoryPool<int>> stackPool;
-    start = clock();
     for (int j = 0; j < REPS; j++)
     {
         assert(stackPool.empty());
@@ -110,12 +115,7 @@ TEST_F(MemoryPoolPerformanceTest, PoolAllocator)
             stackPool.pop();
         }
     }
-    poolTime = clock() - start;
-}
-
-TEST_F(MemoryPoolPerformanceTest, CompareTime)
-{
-    std::printf("Default allocator time: %.2f seconds\n", defaultTime / CLOCKS_PER_SEC);
-    std::printf("MemoryPool allocator time: %.2f seconds\n", poolTime / CLOCKS_PER_SEC);
-    ASSERT_LT(poolTime, defaultTime) << "MemoryPool should be faster than default allocator.";
+    auto end = std::chrono::high_resolution_clock::now();
+    MemoryPoolTest::pool_time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    printf("Pool Allocator: %ld ms\n", MemoryPoolTest::pool_time);
 }

@@ -29,5 +29,6 @@ foreach(test_src ${TEST_SOURCES})
         GTest::gtest_main
     )
 
-    add_test(NAME ${test_name} COMMAND ${test_name})
+    include(GoogleTest)
+    gtest_discover_tests(${test_name})
 endforeach()
