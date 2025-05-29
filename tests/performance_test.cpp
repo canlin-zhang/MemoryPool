@@ -35,7 +35,7 @@
  * benchmark, we want inlined code.
  */
 
-#include "../memory_pool.h"
+#include <memory_pool/memory_pool.h>
 #include "StackAlloc.h"
 #include <gtest/gtest.h>
 #include <cstdio>

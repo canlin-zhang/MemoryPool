@@ -27,6 +27,7 @@ foreach(test_src ${TEST_SOURCES})
     target_link_libraries(${test_name}
         PRIVATE
         GTest::gtest_main
+        memory_pool
     )
 
     include(GoogleTest)
