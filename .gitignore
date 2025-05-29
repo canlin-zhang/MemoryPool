@@ -18,3 +18,6 @@ MemoryPool_test
 
 # VS Code
 .vscode/
+
+# CMake
+build/
