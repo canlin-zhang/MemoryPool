@@ -1,3 +1,4 @@
+#include "MemoryPool.h"
 /*-
  * Copyright (c) 2013 Cosku Acay, http://www.coskuacay.com
  *
@@ -24,11 +25,10 @@
 #define MEMORY_BLOCK_TCC
 
 
-
 template <typename T, size_t BlockSize>
 inline typename MemoryPool<T, BlockSize>::size_type
 MemoryPool<T, BlockSize>::padPointer(data_pointer_ p, size_type align)
-const noexcept
+    const noexcept
 {
   uintptr_t result = reinterpret_cast<uintptr_t>(p);
   return ((align - result) % align);
@@ -219,6 +219,40 @@ MemoryPool<T, BlockSize>::newElement(Args&&... args)
 }
 
 
+template <typename T, size_t BlockSize>
+template <class... Args>
+inline typename MemoryPool<T, BlockSize>::unique_ptr
+MemoryPool<T, BlockSize>::make_unique(Args&&... args) 
+{
+    // Allocate a new element using the memory pool
+    pointer raw = allocate();
+    // Basically a reimplementation of std::new
+    // we need handling of failed constructors
+    try {
+        construct(raw, std::forward<Args>(args)...);
+        return std::unique_ptr<T, Deleter>{
+            raw,
+            Deleter{this}};  // Return a unique pointer with a custom deleter
+    } catch (...) {
+        deallocate(raw);  // Clean up if construction fails
+        throw;  // Re-throw the exception
+    }
+}
+
+template <typename T, size_t BlockSize>
+inline typename MemoryPool<T, BlockSize>::unique_ptr MemoryPool<T, BlockSize>::move(unique_ptr src)
+{
+  // Allocate first
+    pointer raw = allocate();
+    // Construct the object from source object
+    construct(raw, std::move(*src));
+    // Deallocate the source object
+    destroy(src.get());
+    deallocate(src.release());
+
+    return unique_ptr(
+        raw, Deleter{this});
+}
 
 template <typename T, size_t BlockSize>
 inline void

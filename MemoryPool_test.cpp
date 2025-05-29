@@ -45,7 +45,7 @@
 
 /* Adjust these values depending on how much you trust your computer */
 #define ELEMS 1000000
-#define REPS 50
+#define REPS 500
 
 int main()
 {

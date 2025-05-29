@@ -25,6 +25,7 @@
 
 #include <climits>
 #include <cstddef>
+#include <memory>
 
 template <typename T, size_t BlockSize = 4096>
 class MemoryPool
@@ -71,6 +72,28 @@ class MemoryPool
 
     template <class... Args> pointer newElement(Args&&... args);
     void deleteElement(pointer p);
+
+    struct Deleter {
+        // Pool address so we know which pool to use for deletion
+        MemoryPool<T, BlockSize>* pool;
+        void operator()(pointer ptr) const {
+            if (ptr) {
+                // deleteElement already handles both deallocation and
+                // destruction
+                pool->deleteElement(ptr);
+            }
+        }
+    };
+
+    // unique_ptr
+    typedef std::unique_ptr<T, MemoryPool<T, BlockSize>::Deleter> unique_ptr;
+
+    // make_unique
+    template <class... Args>
+    unique_ptr make_unique(Args&&... args);
+
+    // move
+    unique_ptr move(unique_ptr src);
 
   private:
     union Slot_ {
