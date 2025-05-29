@@ -38,7 +38,7 @@
 #include "../memory_pool.h"
 #include "StackAlloc.h"
 #include <gtest/gtest.h>
-#include <iostream>
+#include <cstdio>
 #include <time.h>
 #include <vector>
 
@@ -115,8 +115,7 @@ TEST_F(MemoryPoolPerformanceTest, PoolAllocator)
 
 TEST_F(MemoryPoolPerformanceTest, CompareTime)
 {
-    SCOPED_TRACE("Comparing MemoryPool with default allocator");
-    SCOPED_TRACE("Default allocator time: " + std::to_string(defaultTime) + " ticks");
-    SCOPED_TRACE("MemoryPool time: " + std::to_string(poolTime) + " ticks");
+    std::printf("Default allocator time: %.2f seconds\n", defaultTime / CLOCKS_PER_SEC);
+    std::printf("MemoryPool allocator time: %.2f seconds\n", poolTime / CLOCKS_PER_SEC);
     ASSERT_LT(poolTime, defaultTime) << "MemoryPool should be faster than default allocator.";
 }
