@@ -47,8 +47,8 @@ class MemoryPoolPerformanceTest : public ::testing::Test
 protected:
     static const int ELEMS = 1000000;
     static const int REPS = 500;
-    double defaultTime;
-    double poolTime;
+    clock_t defaultTime;
+    clock_t poolTime;
 };
 
 TEST_F(MemoryPoolPerformanceTest, DefaultAllocator)
@@ -81,7 +81,7 @@ TEST_F(MemoryPoolPerformanceTest, DefaultAllocator)
             stackDefault.pop();
         }
     }
-    defaultTime = (double)(clock() - start);
+    defaultTime = clock() - start;
 }
 
 TEST_F(MemoryPoolPerformanceTest, PoolAllocator)
@@ -110,7 +110,7 @@ TEST_F(MemoryPoolPerformanceTest, PoolAllocator)
             stackPool.pop();
         }
     }
-    poolTime = (double)(clock() - start);
+    poolTime = clock() - start;
 }
 
 TEST_F(MemoryPoolPerformanceTest, CompareTime)
