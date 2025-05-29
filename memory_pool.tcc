@@ -1,4 +1,4 @@
-#include "MemoryPool.h"
+#include "memory_pool.h"
 /*-
  * Copyright (c) 2013 Cosku Acay, http://www.coskuacay.com
  *
@@ -21,9 +21,8 @@
  * IN THE SOFTWARE.
  */
 
-#ifndef MEMORY_BLOCK_TCC
-#define MEMORY_BLOCK_TCC
-
+#ifndef MEMORY_POOL_TCC
+#define MEMORY_POOL_TCC
 
 template <typename T, size_t BlockSize>
 inline typename MemoryPool<T, BlockSize>::size_type
@@ -34,11 +33,8 @@ MemoryPool<T, BlockSize>::padPointer(data_pointer_ p, size_type align)
   return ((align - result) % align);
 }
 
-
-
 template <typename T, size_t BlockSize>
-MemoryPool<T, BlockSize>::MemoryPool()
-noexcept
+MemoryPool<T, BlockSize>::MemoryPool() noexcept
 {
   currentBlock_ = nullptr;
   currentSlot_ = nullptr;
@@ -46,19 +42,13 @@ noexcept
   freeSlots_ = nullptr;
 }
 
-
+template <typename T, size_t BlockSize>
+MemoryPool<T, BlockSize>::MemoryPool(const MemoryPool &memoryPool) noexcept : MemoryPool()
+{
+}
 
 template <typename T, size_t BlockSize>
-MemoryPool<T, BlockSize>::MemoryPool(const MemoryPool& memoryPool)
-noexcept :
-MemoryPool()
-{}
-
-
-
-template <typename T, size_t BlockSize>
-MemoryPool<T, BlockSize>::MemoryPool(MemoryPool&& memoryPool)
-noexcept
+MemoryPool<T, BlockSize>::MemoryPool(MemoryPool &&memoryPool) noexcept
 {
   currentBlock_ = memoryPool.currentBlock_;
   memoryPool.currentBlock_ = nullptr;
@@ -67,20 +57,15 @@ noexcept
   freeSlots_ = memoryPool.freeSlots;
 }
 
+template <typename T, size_t BlockSize>
+template <class U>
+MemoryPool<T, BlockSize>::MemoryPool(const MemoryPool<U> &memoryPool) noexcept : MemoryPool()
+{
+}
 
 template <typename T, size_t BlockSize>
-template<class U>
-MemoryPool<T, BlockSize>::MemoryPool(const MemoryPool<U>& memoryPool)
-noexcept :
-MemoryPool()
-{}
-
-
-
-template <typename T, size_t BlockSize>
-MemoryPool<T, BlockSize>&
-MemoryPool<T, BlockSize>::operator=(MemoryPool&& memoryPool)
-noexcept
+MemoryPool<T, BlockSize> &
+MemoryPool<T, BlockSize>::operator=(MemoryPool &&memoryPool) noexcept
 {
   if (this != &memoryPool)
   {
@@ -92,178 +77,188 @@ noexcept
   return *this;
 }
 
-
-
 template <typename T, size_t BlockSize>
-MemoryPool<T, BlockSize>::~MemoryPool()
-noexcept
+MemoryPool<T, BlockSize>::~MemoryPool() noexcept
 {
   slot_pointer_ curr = currentBlock_;
-  while (curr != nullptr) {
+  while (curr != nullptr)
+  {
     slot_pointer_ prev = curr->next;
-    operator delete(reinterpret_cast<void*>(curr));
+    operator delete(reinterpret_cast<void *>(curr));
     curr = prev;
   }
 }
 
-
-
 template <typename T, size_t BlockSize>
 inline typename MemoryPool<T, BlockSize>::pointer
 MemoryPool<T, BlockSize>::address(reference x)
-const noexcept
+    const noexcept
 {
   return &x;
 }
-
-
 
 template <typename T, size_t BlockSize>
 inline typename MemoryPool<T, BlockSize>::const_pointer
 MemoryPool<T, BlockSize>::address(const_reference x)
-const noexcept
+    const noexcept
 {
   return &x;
 }
 
-
-
 template <typename T, size_t BlockSize>
-void
-MemoryPool<T, BlockSize>::allocateBlock()
+void MemoryPool<T, BlockSize>::allocateBlock()
 {
   // Allocate space for the new block and store a pointer to the previous one
-  data_pointer_ newBlock = reinterpret_cast<data_pointer_>
-                           (operator new(BlockSize));
+  data_pointer_ newBlock = reinterpret_cast<data_pointer_>(operator new(BlockSize));
   reinterpret_cast<slot_pointer_>(newBlock)->next = currentBlock_;
   currentBlock_ = reinterpret_cast<slot_pointer_>(newBlock);
   // Pad block body to staisfy the alignment requirements for elements
   data_pointer_ body = newBlock + sizeof(slot_pointer_);
   size_type bodyPadding = padPointer(body, alignof(slot_type_));
   currentSlot_ = reinterpret_cast<slot_pointer_>(body + bodyPadding);
-  lastSlot_ = reinterpret_cast<slot_pointer_>
-              (newBlock + BlockSize - sizeof(slot_type_) + 1);
+  lastSlot_ = reinterpret_cast<slot_pointer_>(newBlock + BlockSize - sizeof(slot_type_) + 1);
 }
-
-
 
 template <typename T, size_t BlockSize>
 inline typename MemoryPool<T, BlockSize>::pointer
-MemoryPool<T, BlockSize>::allocate(size_type n, const_pointer hint)
+MemoryPool<T, BlockSize>::allocate(size_type n)
 {
-  if (freeSlots_ != nullptr) {
-    pointer result = reinterpret_cast<pointer>(freeSlots_);
-    freeSlots_ = freeSlots_->next;
-    return result;
+  // For single object allocation, use our implementation
+  if (n == 1)
+  {
+    if (freeSlots_ != nullptr)
+    {
+      pointer result = reinterpret_cast<pointer>(freeSlots_);
+      freeSlots_ = freeSlots_->next;
+      return result;
+    }
+    else
+    {
+      if (currentSlot_ >= lastSlot_)
+        allocateBlock();
+      return reinterpret_cast<pointer>(currentSlot_++);
+    }
   }
-  else {
-    if (currentSlot_ >= lastSlot_)
-      allocateBlock();
-    return reinterpret_cast<pointer>(currentSlot_++);
+  // For multiple object, wrap around std::allocator
+  else if (n > 1)
+  {
+    return static_cast<pointer>(std::allocator<T>().allocate(n));
+  }
+  // n can't be zero.
+  else
+  {
+    throw std::bad_alloc(); // Handle invalid allocation request
   }
 }
-
-
 
 template <typename T, size_t BlockSize>
 inline void
 MemoryPool<T, BlockSize>::deallocate(pointer p, size_type n)
 {
-  if (p != nullptr) {
+  if (p == nullptr)
+  {
+    return; // No need to deallocate null pointers
+  }
+  else if (n == 1)
+  {
     reinterpret_cast<slot_pointer_>(p)->next = freeSlots_;
     freeSlots_ = reinterpret_cast<slot_pointer_>(p);
   }
+  else if (n > 1)
+  {
+    // For multiple objects, use std::allocator to deallocate
+    // Current implementation always assume p is a std::allocator<T> pointer
+    // and not a MemoryPool pointer.
+    std::allocator<T>().deallocate(reinterpret_cast<pointer>(p), n);
+  }
+  else
+  {
+    throw std::bad_alloc(); // Handle invalid deallocation request
+  }
 }
-
-
 
 template <typename T, size_t BlockSize>
 inline typename MemoryPool<T, BlockSize>::size_type
 MemoryPool<T, BlockSize>::max_size()
-const noexcept
+    const noexcept
 {
   size_type maxBlocks = -1 / BlockSize;
   return (BlockSize - sizeof(data_pointer_)) / sizeof(slot_type_) * maxBlocks;
 }
 
-
-
 template <typename T, size_t BlockSize>
 template <class U, class... Args>
 inline void
-MemoryPool<T, BlockSize>::construct(U* p, Args&&... args)
+MemoryPool<T, BlockSize>::construct(U *p, Args &&...args)
 {
-  new (p) U (std::forward<Args>(args)...);
+  new (p) U(std::forward<Args>(args)...);
 }
-
-
 
 template <typename T, size_t BlockSize>
 template <class U>
 inline void
-MemoryPool<T, BlockSize>::destroy(U* p)
+MemoryPool<T, BlockSize>::destroy(U *p)
 {
   p->~U();
 }
 
-
-
 template <typename T, size_t BlockSize>
 template <class... Args>
 inline typename MemoryPool<T, BlockSize>::pointer
-MemoryPool<T, BlockSize>::newElement(Args&&... args)
+MemoryPool<T, BlockSize>::newElement(Args &&...args)
 {
   pointer result = allocate();
   construct<value_type>(result, std::forward<Args>(args)...);
   return result;
 }
 
-
 template <typename T, size_t BlockSize>
 template <class... Args>
 inline typename MemoryPool<T, BlockSize>::unique_ptr
-MemoryPool<T, BlockSize>::make_unique(Args&&... args) 
+MemoryPool<T, BlockSize>::make_unique(Args &&...args)
 {
-    // Allocate a new element using the memory pool
-    pointer raw = allocate();
-    // Basically a reimplementation of std::new
-    // we need handling of failed constructors
-    try {
-        construct(raw, std::forward<Args>(args)...);
-        return std::unique_ptr<T, Deleter>{
-            raw,
-            Deleter{this}};  // Return a unique pointer with a custom deleter
-    } catch (...) {
-        deallocate(raw);  // Clean up if construction fails
-        throw;  // Re-throw the exception
-    }
+  // Allocate a new element using the memory pool
+  pointer raw = allocate();
+  // Basically a reimplementation of std::new
+  // we need handling of failed constructors
+  try
+  {
+    construct(raw, std::forward<Args>(args)...);
+    return std::unique_ptr<T, Deleter>{
+        raw,
+        Deleter{this}}; // Return a unique pointer with a custom deleter
+  }
+  catch (...)
+  {
+    deallocate(raw); // Clean up if construction fails
+    throw;           // Re-throw the exception
+  }
 }
 
 template <typename T, size_t BlockSize>
 inline typename MemoryPool<T, BlockSize>::unique_ptr MemoryPool<T, BlockSize>::move(unique_ptr src)
 {
   // Allocate first
-    pointer raw = allocate();
-    // Construct the object from source object
-    construct(raw, std::move(*src));
-    // Deallocate the source object
-    destroy(src.get());
-    deallocate(src.release());
+  pointer raw = allocate();
+  // Construct the object from source object
+  construct(raw, std::move(*src));
+  // Deallocate the source object
+  destroy(src.get());
+  deallocate(src.release());
 
-    return unique_ptr(
-        raw, Deleter{this});
+  return unique_ptr(
+      raw, Deleter{this});
 }
 
 template <typename T, size_t BlockSize>
 inline void
 MemoryPool<T, BlockSize>::deleteElement(pointer p)
 {
-  if (p != nullptr) {
+  if (p != nullptr)
+  {
     p->~value_type();
     deallocate(p);
   }
 }
 
-
-
-#endif // MEMORY_BLOCK_TCC
+#endif // MEMORY_POOL_TCC
