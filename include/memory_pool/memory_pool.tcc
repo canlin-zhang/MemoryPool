@@ -24,6 +24,16 @@
 #ifndef MEMORY_POOL_TCC
 #define MEMORY_POOL_TCC
 
+// Define Slot_
+template <typename T, size_t BlockSize>
+union MemoryPool<T, BlockSize>::Slot_
+{
+  // Pointer to the next free slot
+  Slot_ *next;
+  // The actual data
+  typename std::aligned_storage<sizeof(T), alignof(T)>::type data;
+};
+
 template <typename T, size_t BlockSize>
 inline typename MemoryPool<T, BlockSize>::size_type
 MemoryPool<T, BlockSize>::padPointer(data_pointer_ p, size_type align)
@@ -142,7 +152,7 @@ MemoryPool<T, BlockSize>::allocate(size_type n)
   // For multiple object, wrap around std::allocator
   else if (n > 1)
   {
-    return static_cast<pointer>(std::allocator<T>().allocate(n));
+    return std::allocator<T>().allocate(n);
   }
   // n can't be zero.
   else
@@ -169,7 +179,7 @@ MemoryPool<T, BlockSize>::deallocate(pointer p, size_type n)
     // For multiple objects, use std::allocator to deallocate
     // Current implementation always assume p is a std::allocator<T> pointer
     // and not a MemoryPool pointer.
-    std::allocator<T>().deallocate(reinterpret_cast<pointer>(p), n);
+    std::allocator<T>().deallocate(p, n);
   }
   else
   {
@@ -259,6 +269,12 @@ MemoryPool<T, BlockSize>::deleteElement(pointer p)
     p->~value_type();
     deallocate(p);
   }
+}
+
+template <typename T, size_t BlockSize>
+void MemoryPool<T, BlockSize>::Deleter::operator()(pointer ptr) const
+{
+  pool->deleteElement(ptr);
 }
 
 #endif // MEMORY_POOL_TCC
