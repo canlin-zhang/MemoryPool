@@ -35,7 +35,7 @@
  * benchmark, we want inlined code.
  */
 
-#include <memory_pool/memory_pool.h>
+#include <pool_allocator/pool_allocator.h>
 #include "StackAlloc.h"
 #include <gtest/gtest.h>
 #include <cstdio>
@@ -94,7 +94,7 @@ TEST_F(MemoryPoolTest, pool_allocator_perf)
 {
     /* Use MemoryPool */
     auto start = std::chrono::high_resolution_clock::now();
-    StackAlloc<int, MemoryPool<int>> stackPool;
+    StackAlloc<int, PoolAllocator<int>> stackPool;
     for (int j = 0; j < REPS; j++)
     {
         assert(stackPool.empty());

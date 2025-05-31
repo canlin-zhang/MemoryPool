@@ -1,4 +1,4 @@
-#include <memory_pool/memory_pool.h>
+#include <pool_allocator/pool_allocator.h>
 
 #include <gtest/gtest.h>
 
@@ -8,35 +8,35 @@ class MemoryPoolTest : public ::testing::Test
 {
 protected:
     // This can be used to set up any common state for the tests
-    MemoryPool<int> intPool;
-    MemoryPool<double> doublePool;
-    MemoryPool<char> charPool;
+    PoolAllocator<int> intPool;
+    PoolAllocator<double> doublePool;
+    PoolAllocator<char> charPool;
 };
 
 // Single element allocation and deallocation
 TEST_F(MemoryPoolTest, basic_type_allocation)
 {
-    auto intPtr = intPool.newElement(42);
+    auto intPtr = intPool.new_object(42);
     EXPECT_EQ(*intPtr, 42);
 
-    auto doublePtr = doublePool.newElement(3.14);
+    auto doublePtr = doublePool.new_object(3.14);
     EXPECT_DOUBLE_EQ(*doublePtr, 3.14);
 
-    auto charPtr = charPool.newElement('A');
+    auto charPtr = charPool.new_object('A');
     EXPECT_EQ(*charPtr, 'A');
 }
 
 // Deallocate single elements
 TEST_F(MemoryPoolTest, basic_type_deallocation)
 {
-    auto intPtr = intPool.newElement(42);
-    intPool.deleteElement(intPtr);
+    auto intPtr = intPool.new_object(42);
+    intPool.delete_object(intPtr);
 
-    auto doublePtr = doublePool.newElement(3.14);
-    doublePool.deleteElement(doublePtr);
+    auto doublePtr = doublePool.new_object(3.14);
+    doublePool.delete_object(doublePtr);
 
-    auto charPtr = charPool.newElement('A');
-    charPool.deleteElement(charPtr);
+    auto charPtr = charPool.new_object('A');
+    charPool.delete_object(charPtr);
 }
 
 // Allocate multiple elements

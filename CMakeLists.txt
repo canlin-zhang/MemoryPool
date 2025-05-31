@@ -12,8 +12,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Export include directories
-add_library(memory_pool INTERFACE)
-target_include_directories(memory_pool
+add_library(pool_allocator INTERFACE)
+target_include_directories(pool_allocator
     INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
