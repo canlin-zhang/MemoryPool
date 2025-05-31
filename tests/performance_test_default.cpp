@@ -46,7 +46,7 @@ class MemoryPoolTest : public ::testing::Test
 {
 protected:
     static const int ELEMS = 1000000;
-    static const int REPS = 500;
+    static const int REPS = 50;
     static int64_t pool_time;
     static int64_t default_time;
 };

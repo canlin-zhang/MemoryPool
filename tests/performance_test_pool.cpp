@@ -46,7 +46,7 @@ class MemoryPoolTest : public ::testing::Test
 {
 protected:
     static const int ELEMS = 1000000;
-    static const int REPS = 500;
+    static const int REPS = 50;
     static int64_t pool_time;
     static int64_t default_time;
 };
@@ -56,31 +56,37 @@ int64_t MemoryPoolTest::default_time = 0;
 
 TEST_F(MemoryPoolTest, pool_allocator_perf)
 {
-    /* Use MemoryPool */
-    auto start = std::chrono::high_resolution_clock::now();
-    StackAlloc<int, PoolAllocator<int>> stackPool;
-    for (int j = 0; j < REPS; j++)
-    {
-        assert(stackPool.empty());
-        for (int i = 0; i < ELEMS / 4; i++)
+    { /* Use MemoryPool */
+        auto start = std::chrono::high_resolution_clock::now();
+        StackAlloc<int, PoolAllocator<int>> stackPool;
+        for (int j = 0; j < REPS; j++)
         {
-            // Unroll to time the actual code and not the loop
-            stackPool.push(i);
-            stackPool.push(i);
-            stackPool.push(i);
-            stackPool.push(i);
+            assert(stackPool.empty());
+            for (int i = 0; i < ELEMS / 4; i++)
+            {
+                // Unroll to time the actual code and not the loop
+                stackPool.push(i);
+                stackPool.push(i);
+                stackPool.push(i);
+                stackPool.push(i);
+            }
+            for (int i = 0; i < ELEMS / 4; i++)
+            {
+                // Unroll to time the actual code and not the loop
+                stackPool.pop();
+                stackPool.pop();
+                stackPool.pop();
+                stackPool.pop();
+            }
         }
-        for (int i = 0; i < ELEMS / 4; i++)
-        {
-            // Unroll to time the actual code and not the loop
-            stackPool.pop();
-            stackPool.pop();
-            stackPool.pop();
-            stackPool.pop();
-        }
+        // Delete the stack pool
+        stackPool.clear();
+        // Call destructor to the stack pool itself
+
+        // Measure the time
+        auto end = std::chrono::high_resolution_clock::now();
+        MemoryPoolTest::pool_time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+        printf("Pool Allocator: %ld ms\n", MemoryPoolTest::pool_time);
     }
-    auto end = std::chrono::high_resolution_clock::now();
-    MemoryPoolTest::pool_time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    printf("Pool Allocator: %ld ms\n", MemoryPoolTest::pool_time);
     SUCCEED();
 }

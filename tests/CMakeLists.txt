@@ -31,5 +31,7 @@ foreach(test_src ${TEST_SOURCES})
     )
 
     include(GoogleTest)
-    gtest_discover_tests(${test_name})
+    gtest_discover_tests(${test_name}
+        PROPERTIES ENVIRONMENT "UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1"
+    )
 endforeach()

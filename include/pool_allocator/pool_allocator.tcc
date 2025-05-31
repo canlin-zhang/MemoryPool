@@ -208,6 +208,7 @@ PoolAllocator<T, BlockSize>::allocate(size_type n)
         if (freeListEnd_ == freeListHead_)
         {
             // If this is the only node, reset the head and end
+            delete freeListEnd_;
             freeListHead_ = nullptr;
             freeListEnd_ = nullptr;
         }

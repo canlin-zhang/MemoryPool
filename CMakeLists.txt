@@ -9,14 +9,12 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    set(SANITIZER_FLAGS "-fsanitize=undefined -fno-omit-frame-pointer")
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g -O1")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SANITIZER_FLAGS}")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${SANITIZER_FLAGS}")
+    add_compile_options("$<$<CONFIG:Debug>:-fsanitize=address,undefined>")
+    add_link_options("$<$<CONFIG:Debug>:-fsanitize=address,undefined>")
 endif()
 
-# Export compile commands
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+# # Export compile commands
+# set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Export include directories
 add_library(pool_allocator INTERFACE)
