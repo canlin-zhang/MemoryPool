@@ -36,11 +36,14 @@
 template <typename T, size_t BlockSize>
 PoolAllocator<T, BlockSize>::PoolAllocator() noexcept
 {
-    // Initialize all pointers to nullptr
-    currentBlock_ = nullptr;
-    currentSlot_ = nullptr;
-    lastSlot_ = nullptr;
-    freeSlots_ = nullptr;
+    // Initialize all vectors to empty
+    blocks_.clear();
+    free_slots_.clear();
+    currentSlotBegin_ = nullptr;
+    currentSlotAt_ = nullptr;
+    currentSlotEnd_ = nullptr;
+    freeListHead_ = nullptr;
+    freeListEnd_ = nullptr;
 }
 
 // Copy constructor - do nothing
@@ -53,14 +56,21 @@ PoolAllocator<T, BlockSize>::PoolAllocator(const PoolAllocator &other) noexcept
 template <typename T, size_t BlockSize>
 PoolAllocator<T, BlockSize>::PoolAllocator(PoolAllocator &&other) noexcept
 {
-    currentBlock_ = other.currentBlock_;
-    currentSlot_ = other.currentSlot_;
-    lastSlot_ = other.lastSlot_;
-    freeSlots_ = other.freeSlots_;
-    other.currentBlock_ = nullptr;
-    other.currentSlot_ = nullptr;
-    other.lastSlot_ = nullptr;
-    other.freeSlots_ = nullptr;
+    blocks_ = std::move(other.blocks_);
+    free_slots_ = std::move(other.free_slots_);
+    currentSlotBegin_ = other.currentSlotBegin_;
+    currentSlotAt_ = other.currentSlotAt_;
+    currentSlotEnd_ = other.currentSlotEnd_;
+    freeListHead_ = other.freeListHead_;
+    freeListEnd_ = other.freeListEnd_;
+
+    other.blocks_.clear();
+    other.free_slots_.clear();
+    other.currentSlotBegin_ = nullptr;
+    other.currentSlotAt_ = nullptr;
+    other.currentSlotEnd_ = nullptr;
+    other.freeListHead_ = nullptr;
+    other.freeListEnd_ = nullptr;
 }
 
 // Templated copy - do nothing
@@ -74,13 +84,22 @@ PoolAllocator<T, BlockSize>::PoolAllocator(const PoolAllocator<U, BlockSize> &ot
 template <typename T, size_t BlockSize>
 PoolAllocator<T, BlockSize>::~PoolAllocator() noexcept
 {
-    // Free all allocated blocks
-    while (currentBlock_ != nullptr)
+    // Free all blocks of memory
+    for (auto &block : blocks_)
     {
-        Slot_ *nextBlock = currentBlock_->next;
-        ::operator delete[](currentBlock_);
-        currentBlock_ = nextBlock;
+        ::operator delete[](block.first);
     }
+
+    // Free linked list from head to end
+    FreeListNode *current = freeListHead_;
+    while (current != nullptr)
+    {
+        FreeListNode *next = current->next;
+        delete current;
+        current = next;
+    }
+    freeListHead_ = nullptr;
+    freeListEnd_ = nullptr;
 }
 
 // Move assignment operator
@@ -90,16 +109,23 @@ PoolAllocator<T, BlockSize>::operator=(PoolAllocator &&other) noexcept
 {
     if (this != &other)
     {
-        // Swap the contents of the allocators
-        std::swap(currentBlock_, other.currentBlock_);
-        std::swap(currentSlot_, other.currentSlot_);
-        std::swap(lastSlot_, other.lastSlot_);
-        std::swap(freeSlots_, other.freeSlots_);
-        // Reset the other allocator's pointers
-        other.currentBlock_ = nullptr;
-        other.currentSlot_ = nullptr;
-        other.lastSlot_ = nullptr;
-        other.freeSlots_ = nullptr;
+        // Move the blocks and free slots
+        blocks_ = std::move(other.blocks_);
+        free_slots_ = std::move(other.free_slots_);
+        currentSlotBegin_ = other.currentSlotBegin_;
+        currentSlotAt_ = other.currentSlotAt_;
+        currentSlotEnd_ = other.currentSlotEnd_;
+        freeListHead_ = other.freeListHead_;
+        freeListEnd_ = other.freeListEnd_;
+
+        // Clear the other allocator
+        other.blocks_.clear();
+        other.free_slots_.clear();
+        other.currentSlotBegin_ = nullptr;
+        other.currentSlotAt_ = nullptr;
+        other.currentSlotEnd_ = nullptr;
+        other.freeListHead_ = nullptr;
+        other.freeListEnd_ = nullptr;
     }
 
     return *this;
@@ -125,75 +151,32 @@ PoolAllocator<T, BlockSize>::addressof(const_reference x) const noexcept
 template <typename T, size_t BlockSize>
 void PoolAllocator<T, BlockSize>::allocateBlock()
 {
-    // If we don't have a current block, allocate a new one
-    if (currentBlock_ == nullptr)
+    // Allocate raw pointer for the block
+    char *block_begin = reinterpret_cast<char *>(::operator new[](BlockSize));
+    char *block_end = block_begin + BlockSize;
+    // Store the block in the vector
+    blocks_.emplace_back(block_begin, block_end);
+
+    // Perform alignment
+    size_t usable_size = BlockSize;
+    void *unaligned_begin = static_cast<void *>(block_begin);
+    // Get aligned pointer
+    void *aligned_begin = std::align(alignof(T), sizeof(T), unaligned_begin, usable_size);
+    if (aligned_begin == nullptr)
     {
-        // A new block of memory
-        char *raw = reinterpret_cast<char *>(::operator new[](BlockSize));
-        // Define the block header
-        Slot_ *blockHead = reinterpret_cast<Slot_ *>(raw);
-        blockHead->next = nullptr;
-        currentBlock_ = blockHead;
-
-        // Find aligned region for <T>
-        // Non-aligned pointer (first usable byte)
-        char *beginPtr = raw + sizeof(Slot_);
-        size_t usableSpace = BlockSize - sizeof(Slot_);
-        void *beginPtrLval = static_cast<void *>(beginPtr);
-
-        // Align pointer
-        // std::align will adjust usable space and first
-        void *alignedPtr = std::align(alignof(T), sizeof(T), beginPtrLval, usableSpace);
-        if (alignedPtr == nullptr)
-        {
-            throw std::bad_alloc(); // Allocation failed
-        }
-        else
-        {
-            // Calculate usable slots
-            size_t num_slots = (usableSpace / sizeof(T));
-            if (num_slots == 0)
-            {
-                throw std::bad_alloc(); // Not enough space for even one object
-            }
-            // Set current slot to the aligned pointer
-            currentSlot_ = reinterpret_cast<Slot_ *>(alignedPtr);
-            // Last slot is 1 next to the end of aligned block
-            lastSlot_ = reinterpret_cast<Slot_ *>(alignedPtr) + num_slots;
-            // Also initialize free slots to nullptr
-            freeSlots_ = nullptr;
-        }
+        throw std::bad_alloc(); // Handle allocation failure
     }
-    else
+
+    // Check number of usable slots
+    size_t num_slots = usable_size / sizeof(T);
+    if (num_slots == 0)
     {
-        // If we have a current block, we need to allocate a new one
-        char *raw = reinterpret_cast<char *>(::operator new[](BlockSize));
-        Slot_ *blockHead = reinterpret_cast<Slot_ *>(raw);
-        blockHead->next = currentBlock_;
-        currentBlock_ = blockHead;
-
-        // Find aligned region for <T>
-        char *beginPtr = raw + sizeof(Slot_);
-        size_t usableSpace = BlockSize - sizeof(Slot_);
-        void *beginPtrLval = static_cast<void *>(beginPtr);
-
-        void *alignedPtr = std::align(alignof(T), sizeof(T), beginPtrLval, usableSpace);
-        if (alignedPtr == nullptr)
-        {
-            throw std::bad_alloc(); // Allocation failed
-        }
-        else
-        {
-            size_t num_slots = (usableSpace / sizeof(T));
-            if (num_slots == 0)
-            {
-                throw std::bad_alloc(); // Not enough space for even one object
-            }
-            currentSlot_ = reinterpret_cast<Slot_ *>(alignedPtr);
-            lastSlot_ = reinterpret_cast<Slot_ *>(alignedPtr) + num_slots;
-            // Don't touch free slots, they are handled by deallocation.
-        }
+        throw std::bad_alloc(); // Handle allocation failure
     }
+    // Set the current slot pointers
+    currentSlotBegin_ = reinterpret_cast<char *>(aligned_begin);
+    currentSlotAt_ = currentSlotBegin_;
+    currentSlotEnd_ = currentSlotBegin_ + num_slots * sizeof(T);
 }
 
 // Allocate a single object
@@ -201,31 +184,58 @@ template <typename T, size_t BlockSize>
 typename PoolAllocator<T, BlockSize>::pointer
 PoolAllocator<T, BlockSize>::allocate(size_type n)
 {
-    // For single object allocation, use our implementation
-    if (n == 1)
+    if (n == 0)
     {
-        if (freeSlots_ != nullptr)
-        {
-            pointer result = reinterpret_cast<pointer>(freeSlots_);
-            freeSlots_ = freeSlots_->next;
-            return result;
-        }
-        else
-        {
-            if (currentSlot_ >= lastSlot_)
-                allocateBlock();
-            return reinterpret_cast<pointer>(currentSlot_++);
-        }
+        throw std::bad_alloc(); // Handle zero allocation request
     }
-    // For multiple object, wrap around std::allocator
     else if (n > 1)
     {
+        // For multiple objects, use std::allocator to allocate
+        // Current implementation always assume n is a std::allocator<T> pointer
+        // and not a PoolAllocator pointer.
         return std::allocator<T>().allocate(n);
     }
-    // n can't be zero.
+    // If we have free slots, use them
+    else if (freeListEnd_ != nullptr)
+    {
+        // Sanity check
+        assert(freeListHead_ != nullptr);
+        assert(freeListEnd_->next == nullptr);
+
+        // Get the first free slot
+        char *p = reinterpret_cast<char *>(freeListEnd_->ptr);
+        // Remove the node from free list
+        if (freeListEnd_ == freeListHead_)
+        {
+            // If this is the only node, reset the head and end
+            freeListHead_ = nullptr;
+            freeListEnd_ = nullptr;
+        }
+        // Remove the end node
+        else
+        {
+            FreeListNode *prevNode = freeListEnd_->prev;
+            delete freeListEnd_;
+            prevNode->next = nullptr;
+            freeListEnd_ = prevNode;
+        }
+
+        return reinterpret_cast<pointer>(p);
+    }
+    // Increment from block
     else
     {
-        throw std::bad_alloc(); // Handle invalid allocation request
+        // If new block is needed, allocate it
+        if (currentSlotAt_ >= currentSlotEnd_ || currentSlotBegin_ == nullptr)
+        {
+            // Allocate a new block
+            allocateBlock();
+        }
+        // Get the current slot pointer
+        pointer p = reinterpret_cast<pointer>(currentSlotAt_);
+        // Increment the current slot pointer
+        currentSlotAt_ += sizeof(T);
+        return p;
     }
 }
 
@@ -233,25 +243,46 @@ PoolAllocator<T, BlockSize>::allocate(size_type n)
 template <typename T, size_t BlockSize>
 void PoolAllocator<T, BlockSize>::deallocate(pointer p, size_type n)
 {
-    if (p == nullptr)
+    // If n is zero, do nothing
+    if (n == 0)
     {
-        return; // No need to deallocate null pointers
+        return;
     }
-    else if (n == 1)
+    // If null pointer, do nothing
+    else if (p == nullptr)
     {
-        reinterpret_cast<Slot_ *>(p)->next = freeSlots_;
-        freeSlots_ = reinterpret_cast<Slot_ *>(p);
+        return;
     }
+    // If n is greater than 1, use std::allocator to deallocate
     else if (n > 1)
     {
-        // For multiple objects, use std::allocator to deallocate
-        // Current implementation always assume p is a std::allocator<T> pointer
-        // and not a PoolAllocator pointer.
         std::allocator<T>().deallocate(p, n);
+        return;
     }
+    // If n is 1, deallocate single object
     else
     {
-        throw std::bad_alloc(); // Handle invalid deallocation request
+        // If free list is empty, create a new node
+        if (freeListHead_ == nullptr)
+        {
+            assert(freeListEnd_ == nullptr);
+            freeListHead_ = new FreeListNode();
+            freeListHead_->ptr = reinterpret_cast<char *>(p);
+            freeListHead_->prev = nullptr;
+            freeListHead_->next = nullptr;
+            freeListEnd_ = freeListHead_;
+        }
+        // If free list is not empty, add to the end of the list
+        else
+        {
+            assert(freeListEnd_ != nullptr);
+            FreeListNode *newNode = new FreeListNode();
+            newNode->ptr = reinterpret_cast<char *>(p);
+            newNode->prev = freeListEnd_;
+            newNode->next = nullptr;
+            freeListEnd_->next = newNode;
+            freeListEnd_ = newNode;
+        }
     }
 }
 

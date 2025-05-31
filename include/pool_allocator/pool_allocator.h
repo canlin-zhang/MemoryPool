@@ -34,6 +34,9 @@
 #include <cstddef>
 #include <memory>
 #include <algorithm>
+#include <vector>
+#include <deque>
+#include <cassert>
 
 template <typename T, size_t BlockSize = 4096>
 class PoolAllocator
@@ -122,22 +125,32 @@ public:
     void delete_object(pointer p);
 
 private:
-    // Define slots
-    union Slot_
+    // Allocate a memory block
+    void allocateBlock();
+
+    // Linked list to track free slots
+    // Struct to store linked list nodes
+    struct FreeListNode
     {
-        // Pointer to the next free slot
-        Slot_ *next;
-        // Placeholder byte
-        char dummy[1];
+        // Previous node
+        FreeListNode *prev = nullptr;
+        FreeListNode *next = nullptr;
+        char *ptr = nullptr;
     };
+    // Free list using linked list
+    FreeListNode *freeListHead_ = nullptr;
+    FreeListNode *freeListEnd_ = nullptr;
 
-    Slot_ *currentBlock_; // Pointer to the current block of memory
-    Slot_ *currentSlot_;  // Pointer to the current slot in the block
-    Slot_ *lastSlot_;     // Pointer to the last slot in the current block
-    Slot_ *freeSlots_;    // Pointer to the free slots in the pool
-    void allocateBlock(); // Allocate a new block of memory
+    // Define a list of pointers to blocks of memory
+    // Each block is a pair of pointers to the beginning and end of the block
+    std::vector<std::pair<char *, char *>> blocks_;
+    // Define a list of free <T> that got caught by deallocation
+    std::deque<char *> free_slots_;
 
-    static_assert(BlockSize >= sizeof(Slot_), "Block size must be larger than slot size");
+    // Track the ending and beginning of the current slot
+    char *currentSlotBegin_ = nullptr;
+    char *currentSlotAt_ = nullptr;
+    char *currentSlotEnd_ = nullptr;
 };
 
 // Operators
