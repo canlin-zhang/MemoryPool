@@ -40,7 +40,7 @@
 #include <stack>
 #include <stdlib.h>
 
-template <typename T, size_t BlockSize = 8192>
+template <typename T, size_t BlockSize = 16384>
 class PoolAllocator
 {
 public:
@@ -131,8 +131,8 @@ private:
     void allocateBlock();
 
     // Stack containing memory blocks
-    std::stack<pointer> available_slots;
-    std::stack<pointer> available_blocks;
+    std::stack<pointer, std::vector<pointer>> available_slots;
+    std::stack<pointer, std::vector<pointer>> available_blocks;
 };
 
 // Operators
