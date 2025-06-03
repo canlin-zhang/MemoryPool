@@ -206,7 +206,7 @@ void PoolAllocator<T, BlockSize>::deallocate(pointer p, size_type n)
 // Construct an object in the allocated memory
 template <typename T, size_t BlockSize>
 template <class U, class... Args>
-void PoolAllocator<T, BlockSize>::construct(U *p, Args &&...args)
+void PoolAllocator<T, BlockSize>::construct(U *p, Args &&...args) noexcept
 {
     // Use placement new to construct the object in the allocated memory
     new (p) U(std::forward<Args>(args)...);
@@ -214,7 +214,7 @@ void PoolAllocator<T, BlockSize>::construct(U *p, Args &&...args)
 // Destroy an object in the allocated memory
 template <typename T, size_t BlockSize>
 template <class U>
-void PoolAllocator<T, BlockSize>::destroy(U *p)
+void PoolAllocator<T, BlockSize>::destroy(U *p) noexcept
 {
     // Call the destructor of the object
     p->~U();
@@ -237,16 +237,7 @@ void PoolAllocator<T, BlockSize>::Deleter::operator()(U *ptr) const noexcept
 {
     static_assert(sizeof(U) > 0, "Deleter cannot be used with incomplete types");
     // Call delete_object on the allocator
-    if (allocator)
-    {
-        allocator->delete_object(ptr);
-    }
-    else
-    {
-        // If allocator is null, we cannot delete the object
-        // This should not happen in normal usage
-        throw std::runtime_error("Allocator is null in Deleter");
-    }
+    allocator->delete_object(ptr);
 }
 
 // Create a unique pointer with a custom deleter

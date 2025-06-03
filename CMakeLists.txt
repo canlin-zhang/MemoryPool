@@ -11,11 +11,15 @@ target_include_directories(pool_allocator
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
 
-if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(pool_allocator INTERFACE $<$<CONFIG:Debug>:-fsanitize=address,undefined>)
-    target_link_options(pool_allocator INTERFACE $<$<CONFIG:Debug>:-fsanitize=address,undefined>)
-    target_compile_options(pool_allocator INTERFACE $<$<CONFIG:Release>:-O2 -flto>)
-    target_link_options(pool_allocator INTERFACE $<$<CONFIG:Release>:-flto>)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(pool_allocator INTERFACE
+        -Wall -Wextra -Wpedantic -Werror -Wnoexcept
+        $<$<CONFIG:Debug>:-fsanitize=address,undefined>
+        $<$<CONFIG:Release>:-O2 -flto>)
+    target_link_options(pool_allocator INTERFACE
+        -Wall -Wextra -Wpedantic -Werror -Wnoexcept
+        $<$<CONFIG:Debug>:-fsanitize=address,undefined>
+        $<$<CONFIG:Release>:-flto>)
 endif()
 
 # Add tests directory

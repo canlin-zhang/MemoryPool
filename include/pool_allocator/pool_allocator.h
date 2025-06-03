@@ -96,9 +96,9 @@ public:
 
     // Construct and destory functions
     template <class U, class... Args>
-    void construct(U *p, Args &&...args);
+    void construct(U *p, Args &&...args) noexcept;
     template <class U>
-    void destroy(U *p);
+    void destroy(U *p) noexcept;
 
     // Maximum size of the pool
     size_type max_size() const noexcept;

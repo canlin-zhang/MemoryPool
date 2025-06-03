@@ -11,6 +11,10 @@ TEST(PoolAllocatorTest, IncompleteStructAllocation)
     // Can create a memory pool for an incomplete type
     PoolAllocator<IncompleteStruct> pool;
 
+    // Test make unique with incomplete type
+    IncompletePtr ptr = pool.make_unique();
+    ASSERT_NE(ptr, nullptr); // Ensure the pointer is not null
+
     // The code should compile to here.
     SUCCEED();
 }
