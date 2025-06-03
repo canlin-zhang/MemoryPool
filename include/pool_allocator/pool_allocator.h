@@ -31,14 +31,16 @@
 #define POOL_ALLOCATOR_H
 
 #include <climits>
+#include <iostream>
 #include <cstddef>
 #include <memory>
 #include <algorithm>
 #include <vector>
-#include <deque>
 #include <cassert>
+#include <stack>
+#include <stdlib.h>
 
-template <typename T, size_t BlockSize = 4096>
+template <typename T, size_t BlockSize = 8192>
 class PoolAllocator
 {
 public:
@@ -128,29 +130,9 @@ private:
     // Allocate a memory block
     void allocateBlock();
 
-    // Linked list to track free slots
-    // Struct to store linked list nodes
-    struct FreeListNode
-    {
-        // Previous node
-        FreeListNode *prev = nullptr;
-        FreeListNode *next = nullptr;
-        char *ptr = nullptr;
-    };
-    // Free list using linked list
-    FreeListNode *freeListHead_ = nullptr;
-    FreeListNode *freeListEnd_ = nullptr;
-
-    // Define a list of pointers to blocks of memory
-    // Each block is a pair of pointers to the beginning and end of the block
-    std::vector<std::pair<char *, char *>> blocks_;
-    // Define a list of free <T> that got caught by deallocation
-    std::deque<char *> free_slots_;
-
-    // Track the ending and beginning of the current slot
-    char *currentSlotBegin_ = nullptr;
-    char *currentSlotAt_ = nullptr;
-    char *currentSlotEnd_ = nullptr;
+    // Stack containing memory blocks
+    std::stack<pointer> available_slots;
+    std::stack<pointer> available_blocks;
 };
 
 // Operators

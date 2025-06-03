@@ -36,41 +36,31 @@
 template <typename T, size_t BlockSize>
 PoolAllocator<T, BlockSize>::PoolAllocator() noexcept
 {
-    // Initialize all vectors to empty
-    blocks_.clear();
-    free_slots_.clear();
-    currentSlotBegin_ = nullptr;
-    currentSlotAt_ = nullptr;
-    currentSlotEnd_ = nullptr;
-    freeListHead_ = nullptr;
-    freeListEnd_ = nullptr;
 }
 
-// Copy constructor - do nothing
+// Copy constructor
 template <typename T, size_t BlockSize>
 PoolAllocator<T, BlockSize>::PoolAllocator(const PoolAllocator &other) noexcept
 {
+    // Nothing should be done here
 }
 
 // Move constructor
 template <typename T, size_t BlockSize>
 PoolAllocator<T, BlockSize>::PoolAllocator(PoolAllocator &&other) noexcept
 {
-    blocks_ = std::move(other.blocks_);
-    free_slots_ = std::move(other.free_slots_);
-    currentSlotBegin_ = other.currentSlotBegin_;
-    currentSlotAt_ = other.currentSlotAt_;
-    currentSlotEnd_ = other.currentSlotEnd_;
-    freeListHead_ = other.freeListHead_;
-    freeListEnd_ = other.freeListEnd_;
-
-    other.blocks_.clear();
-    other.free_slots_.clear();
-    other.currentSlotBegin_ = nullptr;
-    other.currentSlotAt_ = nullptr;
-    other.currentSlotEnd_ = nullptr;
-    other.freeListHead_ = nullptr;
-    other.freeListEnd_ = nullptr;
+    // Move available blocks and slots from the other allocator
+    available_slots = std::move(other.available_slots);
+    available_blocks = std::move(other.available_blocks);
+    // Clear the other allocator's stacks
+    while (!other.available_slots.empty())
+    {
+        other.available_slots.pop();
+    }
+    while (!other.available_blocks.empty())
+    {
+        other.available_blocks.pop();
+    }
 }
 
 // Templated copy - do nothing
@@ -84,22 +74,14 @@ PoolAllocator<T, BlockSize>::PoolAllocator(const PoolAllocator<U, BlockSize> &ot
 template <typename T, size_t BlockSize>
 PoolAllocator<T, BlockSize>::~PoolAllocator() noexcept
 {
-    // Free all blocks of memory
-    for (auto &block : blocks_)
-    {
-        ::operator delete[](block.first);
-    }
 
-    // Free linked list from head to end
-    FreeListNode *current = freeListHead_;
-    while (current != nullptr)
+    // Deallocate all blocks, clear slots
+    while (!available_blocks.empty())
     {
-        FreeListNode *next = current->next;
-        delete current;
-        current = next;
+        pointer block = available_blocks.top();
+        available_blocks.pop();
+        std::allocator<T>().deallocate(block, BlockSize / sizeof(T));
     }
-    freeListHead_ = nullptr;
-    freeListEnd_ = nullptr;
 }
 
 // Move assignment operator
@@ -107,25 +89,17 @@ template <typename T, size_t BlockSize>
 PoolAllocator<T, BlockSize> &
 PoolAllocator<T, BlockSize>::operator=(PoolAllocator &&other) noexcept
 {
-    if (this != &other)
+    // Move available blocks and slots from the other allocator
+    available_slots = std::move(other.available_slots);
+    available_blocks = std::move(other.available_blocks);
+    // Clear the other allocator's stacks
+    while (!other.available_slots.empty())
     {
-        // Move the blocks and free slots
-        blocks_ = std::move(other.blocks_);
-        free_slots_ = std::move(other.free_slots_);
-        currentSlotBegin_ = other.currentSlotBegin_;
-        currentSlotAt_ = other.currentSlotAt_;
-        currentSlotEnd_ = other.currentSlotEnd_;
-        freeListHead_ = other.freeListHead_;
-        freeListEnd_ = other.freeListEnd_;
-
-        // Clear the other allocator
-        other.blocks_.clear();
-        other.free_slots_.clear();
-        other.currentSlotBegin_ = nullptr;
-        other.currentSlotAt_ = nullptr;
-        other.currentSlotEnd_ = nullptr;
-        other.freeListHead_ = nullptr;
-        other.freeListEnd_ = nullptr;
+        other.available_slots.pop();
+    }
+    while (!other.available_blocks.empty())
+    {
+        other.available_blocks.pop();
     }
 
     return *this;
@@ -146,37 +120,28 @@ PoolAllocator<T, BlockSize>::addressof(const_reference x) const noexcept
     return std::addressof(x);
 }
 
-// Allocation functions
 // Allocate a memory block
 template <typename T, size_t BlockSize>
 void PoolAllocator<T, BlockSize>::allocateBlock()
 {
-    // Allocate raw pointer for the block
-    char *block_begin = reinterpret_cast<char *>(::operator new[](BlockSize));
-    char *block_end = block_begin + BlockSize;
-    // Store the block in the vector
-    blocks_.emplace_back(block_begin, block_end);
-
-    // Perform alignment
-    size_t usable_size = BlockSize;
-    void *unaligned_begin = static_cast<void *>(block_begin);
-    // Get aligned pointer
-    void *aligned_begin = std::align(alignof(T), sizeof(T), unaligned_begin, usable_size);
-    if (aligned_begin == nullptr)
+    // Calculate number of objects in a block
+    size_type numObjects = BlockSize / sizeof(T);
+    if (numObjects < 1)
     {
-        throw std::bad_alloc(); // Handle allocation failure
+        throw std::bad_alloc();
     }
-
-    // Check number of usable slots
-    size_t num_slots = usable_size / sizeof(T);
-    if (num_slots == 0)
+    else
     {
-        throw std::bad_alloc(); // Handle allocation failure
+        // Allocate a new block of memory
+        pointer block = std::allocator<T>().allocate(numObjects);
+        // Push the block onto the stack of available blocks
+        available_blocks.push(block);
+        // Push all slots in the block onto the stack of available slots
+        for (size_type i = 0; i < numObjects; ++i)
+        {
+            available_slots.push(block + i);
+        }
     }
-    // Set the current slot pointers
-    currentSlotBegin_ = reinterpret_cast<char *>(aligned_begin);
-    currentSlotAt_ = currentSlotBegin_;
-    currentSlotEnd_ = currentSlotBegin_ + num_slots * sizeof(T);
 }
 
 // Allocate a single object
@@ -184,58 +149,30 @@ template <typename T, size_t BlockSize>
 typename PoolAllocator<T, BlockSize>::pointer
 PoolAllocator<T, BlockSize>::allocate(size_type n)
 {
+    // Do nothing if n is 0
     if (n == 0)
     {
-        throw std::bad_alloc(); // Handle zero allocation request
+        return nullptr;
     }
+    // For multiple objects, we revert to std::allocator
     else if (n > 1)
     {
-        // For multiple objects, use std::allocator to allocate
-        // Current implementation always assume n is a std::allocator<T> pointer
-        // and not a PoolAllocator pointer.
         return std::allocator<T>().allocate(n);
     }
-    // If we have free slots, use them
-    else if (freeListEnd_ != nullptr)
-    {
-        // Sanity check
-        assert(freeListHead_ != nullptr);
-        assert(freeListEnd_->next == nullptr);
-
-        // Get the first free slot
-        char *p = reinterpret_cast<char *>(freeListEnd_->ptr);
-        // Remove the node from free list
-        if (freeListEnd_ == freeListHead_)
-        {
-            // If this is the only node, reset the head and end
-            delete freeListEnd_;
-            freeListHead_ = nullptr;
-            freeListEnd_ = nullptr;
-        }
-        // Remove the end node
-        else
-        {
-            FreeListNode *prevNode = freeListEnd_->prev;
-            delete freeListEnd_;
-            prevNode->next = nullptr;
-            freeListEnd_ = prevNode;
-        }
-
-        return reinterpret_cast<pointer>(p);
-    }
-    // Increment from block
+    // Handle single object allocation
     else
     {
-        // If new block is needed, allocate it
-        if (currentSlotAt_ >= currentSlotEnd_ || currentSlotBegin_ == nullptr)
+        // If there are no available slots, allocate a new block
+        if (available_slots.empty())
         {
-            // Allocate a new block
             allocateBlock();
         }
-        // Get the current slot pointer
-        pointer p = reinterpret_cast<pointer>(currentSlotAt_);
-        // Increment the current slot pointer
-        currentSlotAt_ += sizeof(T);
+        // Get the pointer to the next available slot
+        // Sanity check
+        assert(!available_slots.empty() && "No available slots in the pool");
+        // Get last available slot
+        pointer p = available_slots.top();
+        available_slots.pop();
         return p;
     }
 }
@@ -244,46 +181,23 @@ PoolAllocator<T, BlockSize>::allocate(size_type n)
 template <typename T, size_t BlockSize>
 void PoolAllocator<T, BlockSize>::deallocate(pointer p, size_type n)
 {
-    // If n is zero, do nothing
+    // Do nothing if n is 0
     if (n == 0)
     {
         return;
     }
-    // If null pointer, do nothing
-    else if (p == nullptr)
-    {
-        return;
-    }
-    // If n is greater than 1, use std::allocator to deallocate
+    // For multiple objects, we revert to std::allocator
     else if (n > 1)
     {
         std::allocator<T>().deallocate(p, n);
-        return;
     }
-    // If n is 1, deallocate single object
+    // Handle single object deallocation
     else
     {
-        // If free list is empty, create a new node
-        if (freeListHead_ == nullptr)
-        {
-            assert(freeListEnd_ == nullptr);
-            freeListHead_ = new FreeListNode();
-            freeListHead_->ptr = reinterpret_cast<char *>(p);
-            freeListHead_->prev = nullptr;
-            freeListHead_->next = nullptr;
-            freeListEnd_ = freeListHead_;
-        }
-        // If free list is not empty, add to the end of the list
-        else
-        {
-            assert(freeListEnd_ != nullptr);
-            FreeListNode *newNode = new FreeListNode();
-            newNode->ptr = reinterpret_cast<char *>(p);
-            newNode->prev = freeListEnd_;
-            newNode->next = nullptr;
-            freeListEnd_->next = newNode;
-            freeListEnd_ = newNode;
-        }
+        // Push the pointer back onto the stack of available slots
+        available_slots.push(p);
+        // We don't touch the blocks here
+        // Because they are managed separately
     }
 }
 
@@ -320,10 +234,16 @@ template <typename U>
 void PoolAllocator<T, BlockSize>::Deleter::operator()(U *ptr) const noexcept
 {
     static_assert(sizeof(U) > 0, "Deleter cannot be used with incomplete types");
-    if (allocator && ptr)
+    // Call delete_object on the allocator
+    if (allocator)
     {
-        allocator->destroy(ptr);
-        allocator->deallocate(ptr, 1); // Deallocate a single object
+        allocator->delete_object(ptr);
+    }
+    else
+    {
+        // If allocator is null, we cannot delete the object
+        // This should not happen in normal usage
+        throw std::runtime_error("Allocator is null in Deleter");
     }
 }
 
@@ -368,14 +288,10 @@ PoolAllocator<T, BlockSize>::new_object(Args &&...args)
 template <typename T, size_t BlockSize>
 void PoolAllocator<T, BlockSize>::delete_object(pointer p)
 {
-    if (p == nullptr)
-    {
-        return; // No need to delete null pointers
-    }
     // Call the destructor of the object
     destroy(p);
-    // Deallocate the memory
-    deallocate(p, 1); // Deallocate a single object
+    // Deallocate the object
+    deallocate(p, 1);
 }
 
 #endif // POOL_ALLOCATOR_TCC
