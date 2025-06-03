@@ -4,7 +4,7 @@
 
 // Test fundamental types
 // Test fixture: Memory pool of int, double and char
-class MemoryPoolTest : public ::testing::Test
+class PoolAllocatorTest : public ::testing::Test
 {
 protected:
     // This can be used to set up any common state for the tests
@@ -14,7 +14,7 @@ protected:
 };
 
 // Single element allocation and deallocation
-TEST_F(MemoryPoolTest, basic_type_allocation)
+TEST_F(PoolAllocatorTest, basic_type_allocation)
 {
     auto intPtr = intPool.new_object(42);
     EXPECT_EQ(*intPtr, 42);
@@ -27,7 +27,7 @@ TEST_F(MemoryPoolTest, basic_type_allocation)
 }
 
 // Deallocate single elements
-TEST_F(MemoryPoolTest, basic_type_deallocation)
+TEST_F(PoolAllocatorTest, basic_type_deallocation)
 {
     auto intPtr = intPool.new_object(42);
     intPool.delete_object(intPtr);
@@ -40,7 +40,7 @@ TEST_F(MemoryPoolTest, basic_type_deallocation)
 }
 
 // Allocate multiple elements
-TEST_F(MemoryPoolTest, basic_type_multiple_allocation)
+TEST_F(PoolAllocatorTest, basic_type_multiple_allocation)
 {
     auto intPtr = intPool.allocate(100000);
     for (size_t i = 0; i < 100000; ++i)

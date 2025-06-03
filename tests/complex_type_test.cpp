@@ -6,7 +6,7 @@
 
 // Test complex types
 // Test fixture: Memory pool of std::string, std::vector<int>, and std::map<std::string, int>
-class MemoryPoolTest : public ::testing::Test
+class PoolAllocatorTest : public ::testing::Test
 {
 protected:
     PoolAllocator<std::string> stringPool;
@@ -15,7 +15,7 @@ protected:
 };
 
 // Single element allocation and deallocation for std::string
-TEST_F(MemoryPoolTest, string_allocation)
+TEST_F(PoolAllocatorTest, string_allocation)
 {
     auto strPtr = stringPool.new_object("THIS IS A TEST OF STRING ALLOCATION");
     EXPECT_EQ(*strPtr, "THIS IS A TEST OF STRING ALLOCATION");
@@ -23,7 +23,7 @@ TEST_F(MemoryPoolTest, string_allocation)
 }
 
 // Single element allocation and deallocation for std::vector<int>
-TEST_F(MemoryPoolTest, vector_allocation)
+TEST_F(PoolAllocatorTest, vector_allocation)
 {
     auto vecPtr = vectorPool.new_object(std::vector<int>{1, 2, 3, 4, 5});
     EXPECT_EQ((*vecPtr)[0], 1);
@@ -35,7 +35,7 @@ TEST_F(MemoryPoolTest, vector_allocation)
 }
 
 // Single element allocation and deallocation for std::map<std::string, int>
-TEST_F(MemoryPoolTest, map_allocation)
+TEST_F(PoolAllocatorTest, map_allocation)
 {
     auto mapPtr = mapPool.new_object(std::map<std::string, int>{{"one", 1}, {"two", 2}});
     EXPECT_EQ((*mapPtr)["one"], 1);

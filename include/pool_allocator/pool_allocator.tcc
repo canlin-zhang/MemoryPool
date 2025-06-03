@@ -24,7 +24,8 @@
 /* Modified by Canlin Zhang
  * Changes:
  * 1. Added incomplete struct/class support (forward declaration)
- * 2. Added unique_ptr its necessary helper functions
+ * 2. Changed block and slot tracking to use std::stack backed by std::vector
+ * 3. Added unique_ptr its necessary helper functions
  */
 
 #include "pool_allocator.h"
@@ -63,11 +64,12 @@ PoolAllocator<T, BlockSize>::PoolAllocator(PoolAllocator &&other) noexcept
     }
 }
 
-// Templated copy - do nothing
+// Templated copy
 template <typename T, size_t BlockSize>
 template <class U>
 PoolAllocator<T, BlockSize>::PoolAllocator(const PoolAllocator<U, BlockSize> &other) noexcept
 {
+    // Nothing should be done here
 }
 
 // Destructor
@@ -169,7 +171,7 @@ PoolAllocator<T, BlockSize>::allocate(size_type n)
         }
         // Get the pointer to the next available slot
         // Sanity check
-        assert(!available_slots.empty() && "No available slots in the pool");
+        assert(!available_slots.empty());
         // Get last available slot
         pointer p = available_slots.top();
         available_slots.pop();

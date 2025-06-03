@@ -42,19 +42,17 @@
 #include <vector>
 #include <chrono>
 
-class MemoryPoolTest : public ::testing::Test
+class PoolAllocatorTest : public ::testing::Test
 {
 protected:
     static const int ELEMS = 1000000;
     static const int REPS = 500;
     static int64_t pool_time;
-    static int64_t default_time;
 };
 
-int64_t MemoryPoolTest::pool_time = 0;
-int64_t MemoryPoolTest::default_time = 0;
+int64_t PoolAllocatorTest::pool_time = 0;
 
-TEST_F(MemoryPoolTest, pool_allocator_perf)
+TEST_F(PoolAllocatorTest, pool_allocator_perf)
 {
     { /* Use MemoryPool */
         auto start = std::chrono::high_resolution_clock::now();
@@ -85,8 +83,8 @@ TEST_F(MemoryPoolTest, pool_allocator_perf)
 
         // Measure the time
         auto end = std::chrono::high_resolution_clock::now();
-        MemoryPoolTest::pool_time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        printf("Pool Allocator: %ld ms\n", MemoryPoolTest::pool_time);
+        PoolAllocatorTest::pool_time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+        printf("Pool Allocator: %ld ms\n", PoolAllocatorTest::pool_time);
     }
     SUCCEED();
 }

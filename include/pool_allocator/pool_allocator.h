@@ -24,7 +24,8 @@
 /* Modified by Canlin Zhang
  * Changes:
  * 1. Added incomplete struct/class support (forward declaration)
- * 2. Added unique_ptr its necessary helper functions
+ * 2. Changed block and slot tracking to use std::stack backed by std::vector
+ * 3. Added unique_ptr its necessary helper functions
  */
 
 #ifndef POOL_ALLOCATOR_H
@@ -130,7 +131,7 @@ private:
     // Allocate a memory block
     void allocateBlock();
 
-    // Stack containing memory blocks
+    // Stack backed by vector to track block pointers and available slots
     std::stack<pointer, std::vector<pointer>> available_slots;
     std::stack<pointer, std::vector<pointer>> available_blocks;
 };
