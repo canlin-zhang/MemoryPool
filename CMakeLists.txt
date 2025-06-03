@@ -12,13 +12,8 @@ target_include_directories(pool_allocator
 )
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(pool_allocator INTERFACE
-        -Wall -Wextra -Wpedantic -Wnoexcept
-        $<$<CONFIG:Debug>:-fsanitize=address,undefined>
-        $<$<CONFIG:Release>:-O2 -flto>)
-    target_link_options(pool_allocator INTERFACE
-        $<$<CONFIG:Debug>:-fsanitize=address,undefined>
-        $<$<CONFIG:Release>:-flto>)
+    target_compile_options(pool_allocator INTERFACE -O2)
+    target_link_options(pool_allocator INTERFACE)
 endif()
 
 # Add tests directory

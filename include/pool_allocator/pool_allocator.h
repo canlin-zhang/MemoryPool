@@ -139,15 +139,15 @@ private:
 // Operators
 // Operator != and ==
 template <typename T1, size_t B1, typename T2, size_t B2>
-bool operator==(const PoolAllocator<T1, B1> &,
-                const PoolAllocator<T2, B2> &) noexcept
+inline bool operator==(const PoolAllocator<T1, B1> &,
+                       const PoolAllocator<T2, B2> &) noexcept
 {
     return B1 == B2;
 }
 
 template <typename T1, size_t B1, typename T2, size_t B2>
-bool operator!=(const PoolAllocator<T1, B1> &a,
-                const PoolAllocator<T2, B2> &b) noexcept
+inline bool operator!=(const PoolAllocator<T1, B1> &a,
+                       const PoolAllocator<T2, B2> &b) noexcept
 {
     return !(a == b);
 }
