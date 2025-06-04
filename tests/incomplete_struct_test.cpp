@@ -3,7 +3,7 @@
 
 struct IncompleteStruct;
 
-TEST(PoolAllocatorTest, IncompleteStructAllocation)
+TEST(PoolAllocatorTest, forward_declaration_test)
 {
     // Can construct a unique_ptr with an incomplete type
     using IncompletePtr = std::unique_ptr<IncompleteStruct, PoolAllocator<IncompleteStruct>::Deleter>;

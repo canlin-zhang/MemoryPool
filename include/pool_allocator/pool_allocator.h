@@ -132,8 +132,8 @@ private:
     void allocateBlock();
 
     // Stack backed by vector to track block pointers and available slots
-    std::stack<pointer, std::vector<pointer>> available_slots;
-    std::stack<pointer, std::vector<pointer>> available_blocks;
+    std::vector<pointer> available_slots;
+    std::vector<pointer> available_blocks;
 };
 
 // Operators

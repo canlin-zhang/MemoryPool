@@ -12,7 +12,7 @@ target_include_directories(pool_allocator
 )
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(pool_allocator INTERFACE -O2)
+    target_compile_options(pool_allocator INTERFACE)
     target_link_options(pool_allocator INTERFACE)
 endif()
 

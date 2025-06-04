@@ -53,15 +53,6 @@ PoolAllocator<T, BlockSize>::PoolAllocator(PoolAllocator &&other) noexcept
     // Move available blocks and slots from the other allocator
     available_slots = std::move(other.available_slots);
     available_blocks = std::move(other.available_blocks);
-    // Clear the other allocator's stacks
-    while (!other.available_slots.empty())
-    {
-        other.available_slots.pop();
-    }
-    while (!other.available_blocks.empty())
-    {
-        other.available_blocks.pop();
-    }
 }
 
 // Templated copy
@@ -80,9 +71,9 @@ PoolAllocator<T, BlockSize>::~PoolAllocator() noexcept
     // Deallocate all blocks, clear slots
     while (!available_blocks.empty())
     {
-        pointer block = available_blocks.top();
-        available_blocks.pop();
-        std::allocator<T>().deallocate(block, BlockSize / sizeof(T));
+        pointer block = available_blocks.back();
+        available_blocks.pop_back();
+        ::operator delete(block, std::align_val_t(alignof(T)));
     }
 }
 
@@ -94,15 +85,6 @@ PoolAllocator<T, BlockSize>::operator=(PoolAllocator &&other) noexcept
     // Move available blocks and slots from the other allocator
     available_slots = std::move(other.available_slots);
     available_blocks = std::move(other.available_blocks);
-    // Clear the other allocator's stacks
-    while (!other.available_slots.empty())
-    {
-        other.available_slots.pop();
-    }
-    while (!other.available_blocks.empty())
-    {
-        other.available_blocks.pop();
-    }
 
     return *this;
 }
@@ -126,23 +108,25 @@ PoolAllocator<T, BlockSize>::addressof(const_reference x) const noexcept
 template <typename T, size_t BlockSize>
 void PoolAllocator<T, BlockSize>::allocateBlock()
 {
-    // Calculate number of objects in a block
-    size_type numObjects = BlockSize / sizeof(T);
+    // Compute proper stride
+    constexpr size_type stride = std::max(sizeof(T), alignof(T));
+    size_type numObjects = BlockSize / stride;
+
     if (numObjects < 1)
     {
         throw std::bad_alloc();
     }
-    else
+
+    // Allocate memory with correct alignment
+    void *raw = ::operator new(stride * numObjects, std::align_val_t(alignof(T)));
+    pointer block = static_cast<pointer>(raw);
+    available_blocks.push_back(block);
+
+    // Push all slots with stride-based placement
+    for (size_type i = 0; i < numObjects; ++i)
     {
-        // Allocate a new block of memory
-        pointer block = std::allocator<T>().allocate(numObjects);
-        // Push the block onto the stack of available blocks
-        available_blocks.push(block);
-        // Push all slots in the block onto the stack of available slots
-        for (size_type i = 0; i < numObjects; ++i)
-        {
-            available_slots.push(block + i);
-        }
+        char *ptr = reinterpret_cast<char *>(raw) + i * stride;
+        available_slots.push_back(reinterpret_cast<pointer>(ptr));
     }
 }
 
@@ -173,8 +157,8 @@ PoolAllocator<T, BlockSize>::allocate(size_type n)
         // Sanity check
         assert(!available_slots.empty());
         // Get last available slot
-        pointer p = available_slots.top();
-        available_slots.pop();
+        pointer p = available_slots.back();
+        available_slots.pop_back();
         return p;
     }
 }
@@ -197,7 +181,7 @@ void PoolAllocator<T, BlockSize>::deallocate(pointer p, size_type n)
     else
     {
         // Push the pointer back onto the stack of available slots
-        available_slots.push(p);
+        available_slots.push_back(p);
         // We don't touch the blocks here
         // Because they are managed separately
     }

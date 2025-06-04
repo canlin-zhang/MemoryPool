@@ -8,10 +8,17 @@
 // Test fixture: Memory pool of std::string, std::vector<int>, and std::map<std::string, int>
 class PoolAllocatorTest : public ::testing::Test
 {
+public:
+    struct alignas(64) AlignedStruct
+    {
+        char x;
+    };
+
 protected:
     PoolAllocator<std::string> stringPool;
     PoolAllocator<std::vector<int>> vectorPool;
     PoolAllocator<std::map<std::string, int>> mapPool;
+    PoolAllocator<AlignedStruct> alignedPool;
 };
 
 // Single element allocation and deallocation for std::string
@@ -41,4 +48,17 @@ TEST_F(PoolAllocatorTest, map_allocation)
     EXPECT_EQ((*mapPtr)["one"], 1);
     EXPECT_EQ((*mapPtr)["two"], 2);
     mapPool.delete_object(mapPtr);
+}
+
+// Test allocation of a struct with alignment requirements
+TEST_F(PoolAllocatorTest, aligned_struct_allocation)
+{
+    EXPECT_LE(sizeof(AlignedStruct), alignof(AlignedStruct)); // Ensure size is less than or equal to alignment
+
+    auto alignedPtr = alignedPool.new_object();
+    alignedPtr->x = 'A';
+
+    EXPECT_EQ(alignedPtr->x, 'A');
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(alignedPtr) % alignof(AlignedStruct), 0);
+    alignedPool.delete_object(alignedPtr);
 }
