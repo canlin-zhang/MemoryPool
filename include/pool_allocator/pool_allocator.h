@@ -41,7 +41,7 @@
 #include <stack>
 #include <stdlib.h>
 
-template <typename T, size_t BlockSize = 65536>
+template <typename T, size_t BlockSize = 4096>
 class PoolAllocator
 {
 public:
@@ -130,10 +130,6 @@ public:
 private:
     // Allocate a memory block
     void allocateBlock();
-
-    // Stack backed by vector to track block pointers and available slots
-    // std::vector<pointer> available_slots;
-    // std::vector<pointer> available_blocks;
 
     // Maintain a singly linked list of available blocks, tracking only by allocateBlock
     struct Block
