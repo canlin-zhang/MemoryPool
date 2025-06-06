@@ -151,7 +151,6 @@ private:
     // Maintain a singly linked list of available slots, tracking only by deallocation
     struct Slot
     {
-        pointer ptr;
         Slot *prev;
     };
 
