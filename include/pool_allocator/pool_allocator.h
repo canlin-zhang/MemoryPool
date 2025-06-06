@@ -41,7 +41,7 @@
 #include <stack>
 #include <stdlib.h>
 
-template <typename T, size_t BlockSize = 16384>
+template <typename T, size_t BlockSize = 65536>
 class PoolAllocator
 {
 public:
@@ -132,8 +132,30 @@ private:
     void allocateBlock();
 
     // Stack backed by vector to track block pointers and available slots
-    std::vector<pointer> available_slots;
-    std::vector<pointer> available_blocks;
+    // std::vector<pointer> available_slots;
+    // std::vector<pointer> available_blocks;
+
+    // Maintain a singly linked list of available blocks, tracking only by allocateBlock
+    struct Block
+    {
+        pointer ptr;
+        Block *prev;
+    };
+
+    // Internal counter to track the latest available position in the block
+    Block *free_blocks = nullptr;
+    size_type current_block_slot = 0;
+    pointer current_block = nullptr;
+    pointer current_block_end = nullptr;
+
+    // Maintain a singly linked list of available slots, tracking only by deallocation
+    struct Slot
+    {
+        pointer ptr;
+        Slot *prev;
+    };
+
+    Slot *free_slots = nullptr;
 };
 
 // Operators

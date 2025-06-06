@@ -4,6 +4,25 @@ project(MemoryPool LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# UBSAN options
+option(ENABLE_UBSAN "Enable Undefined Behavior Sanitizer" OFF)
+if(ENABLE_UBSAN)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        add_compile_options(
+            -fsanitize=undefined
+            -fno-sanitize-recover=all
+            -Wall
+            -Wextra
+            -Wpedantic
+            -Wconversion
+            -Wshadow)
+        add_link_options(
+            -fsanitize=undefined)
+    else()
+        message(WARNING "UBSAN is only supported with GCC and Clang.")
+    endif()
+endif()
+
 # Export include directories
 add_library(pool_allocator INTERFACE)
 target_include_directories(pool_allocator
