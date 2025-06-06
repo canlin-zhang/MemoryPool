@@ -46,7 +46,7 @@ class PoolAllocatorTest : public ::testing::Test
 {
 protected:
     static const int ELEMS = 1000000;
-    static const int REPS = 100;
+    static const int REPS = 500;
     static int64_t pool_time;
 };
 
