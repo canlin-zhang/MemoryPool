@@ -6,6 +6,8 @@
 #include <random>
 #include <algorithm>
 #include <iostream>
+#include <iomanip> // make sure this is at the top of your file
+#include <cassert>
 
 template <typename Alloc>
 int64_t run_allocator_benchmark(const std::string &label, Alloc &allocator, std::vector<typename Alloc::pointer> &ptr_vec)
@@ -92,8 +94,7 @@ int64_t run_allocator_benchmark(const std::string &label, Alloc &allocator, std:
     auto end_cleanup = std::chrono::steady_clock::now();
     total_time += std::chrono::duration_cast<std::chrono::microseconds>(end_cleanup - start_cleanup).count();
 
-    std::cout << label << ": " << total_time << " us\n";
-    std::cout << "Steps used: " << steps_used << "\n";
+    // std::cout << label << ": " << total_time << " us\n";
     return total_time;
 }
 
@@ -233,4 +234,24 @@ TEST_F(PoolAllocatorTest, allocator_perf)
 
     // Assert that pool allocator is faster than default allocator
     ASSERT_LT(pool_time, default_time) << "Pool allocator should be faster than default allocator";
+
+    // print a relative performance comparison table with the default allocator as the baseline
+    std::cout << "Performance Comparison:\n";
+
+    std::cout << std::left << std::setw(12) << "Allocator"
+              << std::right << std::setw(12) << "Time (us)"
+              << std::setw(16) << "Relative (%)" << "\n"
+              << std::fixed << std::setprecision(1);
+
+    std::cout << std::left  << std::setw(12) << "Default"
+              << std::right << std::setw(12) << default_time
+              << std::setw(16) << "100.0%" << "\n";
+    std::cout << std::left  << std::setw(12) << "Pool"
+              << std::right << std::setw(12) << pool_time
+              << std::setw(15) << std::fixed << std::setprecision(1)
+              << (static_cast<double>(pool_time) / default_time) * 100 << "%" << "\n";
+    std::cout << std::left  << std::setw(12) << "Stack"
+              << std::right << std::setw(12) << stack_time
+              << std::setw(15) << std::fixed << std::setprecision(1)
+              << (static_cast<double>(stack_time) / default_time) * 100 << "%" << "\n";
 }
