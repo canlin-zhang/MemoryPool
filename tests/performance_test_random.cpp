@@ -97,20 +97,121 @@ int64_t run_allocator_benchmark(const std::string &label, Alloc &allocator, std:
     return total_time;
 }
 
+template <typename T, size_t BlockSize = 1024>
+class StackAllocator
+{
+public:
+    /* Member types */
+    using value_type = T;
+    using pointer = T *;
+    using const_pointer = const T *;
+    using void_pointer = void *;
+    using const_void_pointer = const void *;
+    using reference = T &;
+    using const_reference = const T &;
+    using size_type = std::size_t;
+    using difference_type = std::ptrdiff_t;
+    using propagate_on_container_copy_assignment = std::false_type;
+    using propagate_on_container_move_assignment = std::true_type;
+    using propagate_on_container_swap = std::true_type;
+    using is_always_equal = std::true_type;
+
+    /* Legacy Rebind struct */
+    template <typename U>
+    struct rebind
+    {
+        typedef StackAllocator<U, BlockSize> other;
+    };
+
+    StackAllocator() noexcept {};
+    StackAllocator(const StackAllocator &) noexcept = default;
+    StackAllocator(StackAllocator &&) noexcept = default;
+    template <class U>
+    StackAllocator(const StackAllocator<U, BlockSize> &) noexcept {};
+    ~StackAllocator() noexcept = default;
+
+    StackAllocator &operator=(const StackAllocator &) = delete;
+    StackAllocator &operator=(StackAllocator &&) noexcept = default;
+
+    pointer addressof(reference x) const noexcept
+    {
+        return std::addressof(x);
+    }
+    const_pointer addressof(const_reference x) const noexcept
+    {
+        return std::addressof(x);
+    }
+    pointer allocate(size_type n = 1)
+    {
+        if (n == 0)
+            return nullptr;
+        if (n > 1)
+            return std::allocator<T>().allocate(n);
+
+        if (stack.empty())
+            allocateBlock();
+        pointer ret = stack.top();
+        stack.pop();
+        return ret;
+    }
+
+    void deallocate(pointer p, size_type n = 1)
+    {
+        if (n == 0 || p == nullptr)
+            return;
+        if (n > 1)
+            return std::allocator<T>().deallocate(p, n);
+
+        stack.push(p);
+    }
+
+    // Construct and destroy functions
+    template <class U, class... Args>
+    void construct(U *p, Args &&...args) noexcept
+    {
+        new (p) U(std::forward<Args>(args)...);
+    }
+    template <class U>
+    void destroy(U *p) noexcept
+    {
+        p->~U();
+    }
+
+    size_type max_size() const noexcept
+    {
+        return BlockSize / sizeof(T);
+    }
+
+private:
+    void allocateBlock()
+    {
+        // Allocate a block of memory and push it onto the stack
+        T *block = std::allocator<T>().allocate(BlockSize);
+        for (size_type i = 0; i < BlockSize / sizeof(T); ++i)
+        {
+            stack.push(block + i);
+        }
+    }
+    std::stack<pointer, std::vector<pointer>> stack; // Stack to hold allocated pointers
+};
+
 // Text fixture - pool allocator and default allocator
 class PoolAllocatorTest : public ::testing::Test
 {
 protected:
     int64_t pool_time;    // Time taken by pool allocator
     int64_t default_time; // Time taken by default allocator
+    int64_t stack_time;   // Time taken by stack allocator
 
     // Pointer storage
     std::vector<int *> pool_ptr_vector;
     std::vector<int *> default_ptr_vector;
+    std::vector<int *> stack_ptr_vector;
 
     // Test allocator
     std::allocator<int> default_allocator;
     PoolAllocator<int> pool_allocator;
+    StackAllocator<int> stack_allocator;
 };
 
 // Test for pool allocator performance
@@ -118,14 +219,17 @@ TEST_F(PoolAllocatorTest, allocator_perf)
 {
     pool_time = run_allocator_benchmark("Pool Allocator", pool_allocator, pool_ptr_vector);
     default_time = run_allocator_benchmark("Default Allocator", default_allocator, default_ptr_vector);
+    stack_time = run_allocator_benchmark("Stack Allocator", stack_allocator, stack_ptr_vector);
 
     // Sanity check for test run time
     ASSERT_GT(pool_time, 0) << "Pool allocator time should be greater than 0";
     ASSERT_GT(default_time, 0) << "Default allocator time should be greater than 0";
+    ASSERT_GT(stack_time, 0) << "Stack allocator time should be greater than 0";
 
     // Assert that vectors are empty after the test
     ASSERT_TRUE(pool_ptr_vector.empty()) << "Pool allocator vector should be empty after test";
     ASSERT_TRUE(default_ptr_vector.empty()) << "Default allocator vector should be empty after test";
+    ASSERT_TRUE(stack_ptr_vector.empty()) << "Stack allocator vector should be empty after test";
 
     // Assert that pool allocator is faster than default allocator
     ASSERT_LT(pool_time, default_time) << "Pool allocator should be faster than default allocator";
