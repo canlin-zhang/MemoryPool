@@ -32,7 +32,7 @@ int64_t run_allocator_benchmark(const std::string &label, Alloc &allocator, std:
     }
 
     auto end_init = std::chrono::steady_clock::now();
-    total_time += std::chrono::duration_cast<std::chrono::milliseconds>(end_init - start_init).count();
+    total_time += std::chrono::duration_cast<std::chrono::microseconds>(end_init - start_init).count();
 
     while (steps_used < MAX_STEP)
     {
@@ -63,7 +63,7 @@ int64_t run_allocator_benchmark(const std::string &label, Alloc &allocator, std:
             ptr_vec.erase(ptr_vec.end() - BLOCK_SIZE, ptr_vec.end());
 
             auto end_deallocate = std::chrono::steady_clock::now();
-            total_time += std::chrono::duration_cast<std::chrono::milliseconds>(end_deallocate - start_deallocate).count();
+            total_time += std::chrono::duration_cast<std::chrono::microseconds>(end_deallocate - start_deallocate).count();
         }
         else
         {
@@ -76,7 +76,7 @@ int64_t run_allocator_benchmark(const std::string &label, Alloc &allocator, std:
                 ptr_vec.push_back(ptr);
             }
             auto end_reallocate = std::chrono::steady_clock::now();
-            total_time += std::chrono::duration_cast<std::chrono::milliseconds>(end_reallocate - start_reallocate).count();
+            total_time += std::chrono::duration_cast<std::chrono::microseconds>(end_reallocate - start_reallocate).count();
         }
         steps_used++;
     }
@@ -90,9 +90,9 @@ int64_t run_allocator_benchmark(const std::string &label, Alloc &allocator, std:
     }
     ptr_vec.clear();
     auto end_cleanup = std::chrono::steady_clock::now();
-    total_time += std::chrono::duration_cast<std::chrono::milliseconds>(end_cleanup - start_cleanup).count();
+    total_time += std::chrono::duration_cast<std::chrono::microseconds>(end_cleanup - start_cleanup).count();
 
-    std::cout << label << ": " << total_time << " ms\n";
+    std::cout << label << ": " << total_time << " us\n";
     std::cout << "Steps used: " << steps_used << "\n";
     return total_time;
 }
