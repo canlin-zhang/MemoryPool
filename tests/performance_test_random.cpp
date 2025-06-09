@@ -18,7 +18,7 @@ int64_t run_allocator_benchmark(const std::string &label, Alloc &allocator, std:
 
     constexpr int NUM_ELEMS = 1'000'000;
     constexpr int BLOCK_SIZE = 100'000;
-    constexpr int MAX_STEP = 50;
+    constexpr int MAX_STEP = 500;
     int steps_used = 0;
 
     int64_t total_time = 0;
@@ -36,14 +36,22 @@ int64_t run_allocator_benchmark(const std::string &label, Alloc &allocator, std:
 
     while (steps_used < MAX_STEP)
     {
-        if (!ptr_vec.empty() && coin_flip(rng))
+        const bool must_alloc = ptr_vec.empty();
+        const bool must_free = ptr_vec.size() >= NUM_ELEMS * 2;
+        assert(!must_alloc || !must_free);
+        const bool do_free = must_alloc ? false : must_free ? true
+                                                            : coin_flip(rng);
+        if (do_free)
         {
-            for (auto dest = ptr_vec.end() - BLOCK_SIZE; dest != ptr_vec.end() - BLOCK_SIZE / 2; ++dest)
+            // randomly select some old pointers to deallocate
+            if (ptr_vec.size() > BLOCK_SIZE)
             {
-                auto rand_it = ptr_vec.begin() + rng() % (ptr_vec.size() - BLOCK_SIZE);
-                std::swap(*dest, *rand_it);
+                for (auto dest = ptr_vec.end() - BLOCK_SIZE; dest != ptr_vec.end() - BLOCK_SIZE / 2; ++dest)
+                {
+                    auto rand_it = ptr_vec.begin() + rng() % (ptr_vec.size() - BLOCK_SIZE);
+                    std::swap(*dest, *rand_it);
+                }
             }
-
             // Deallocate
             auto start_deallocate = std::chrono::steady_clock::now();
             for (auto it = ptr_vec.end() - BLOCK_SIZE; it != ptr_vec.end(); ++it)
