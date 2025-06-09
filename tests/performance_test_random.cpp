@@ -102,6 +102,10 @@ TEST_F(PoolAllocatorTest, allocator_perf)
     pool_time = run_allocator_benchmark("Pool Allocator", pool_allocator, pool_ptr_vector);
     default_time = run_allocator_benchmark("Default Allocator", default_allocator, default_ptr_vector);
 
+    // Sanity check for test run time
+    ASSERT_GT(pool_time, 0) << "Pool allocator time should be greater than 0";
+    ASSERT_GT(default_time, 0) << "Default allocator time should be greater than 0";
+
     // Assert that vectors are empty after the test
     ASSERT_TRUE(pool_ptr_vector.empty()) << "Pool allocator vector should be empty after test";
     ASSERT_TRUE(default_ptr_vector.empty()) << "Default allocator vector should be empty after test";
