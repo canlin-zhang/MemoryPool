@@ -45,7 +45,7 @@ int64_t run_allocator_benchmark(const std::string &label, Alloc &allocator, std:
                                                             : coin_flip(rng);
         if (do_free)
         {
-            // randomly select some old pointers to deallocate
+            // randomly select half a block of old pointers to deallocate
             if (ptr_vec.size() > BLOCK_SIZE)
             {
                 for (auto dest = ptr_vec.end() - BLOCK_SIZE; dest != ptr_vec.end() - BLOCK_SIZE / 2; ++dest)
