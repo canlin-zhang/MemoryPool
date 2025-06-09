@@ -21,7 +21,7 @@ foreach(test_src ${TEST_SOURCES})
 
     target_include_directories(${test_name}
         PRIVATE
-        ${CMAKE_SOURCE_DIR}  # For MemoryPool.h and .tcc
+        ${CMAKE_SOURCE_DIR} # For MemoryPool.h and .tcc
     )
 
     target_link_libraries(${test_name}

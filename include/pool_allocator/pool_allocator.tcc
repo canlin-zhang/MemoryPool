@@ -260,22 +260,22 @@ PoolAllocator<T, BlockSize>::allocate(size_type n)
         // Simple case -> T is larger than Slot pointer, contiguous memory layout
         if constexpr (alignof(T) >= alignof(Slot))
         {
-            // Check whether we have available slots from current block
-            if (current_block != nullptr && current_block + current_block_slot < current_block_end)
-            {
-                // Then move up the current block slot index by 1
-                pointer p = current_block + current_block_slot;
-                current_block_slot++;
-                // Return the pointer to the allocated object
-                return p;
-            }
             // If not, check free list first
-            else if (free_slots != nullptr)
+            if (free_slots != nullptr)
             {
                 // Pop the first available slot from the linked list
                 pointer p = reinterpret_cast<pointer>(free_slots);
                 Slot *prev = free_slots->prev;
                 free_slots = prev; // Move to the next slot in the list
+                return p;
+            }
+            // Check whether we have available slots from current block
+            else if (current_block != nullptr && current_block + current_block_slot < current_block_end)
+            {
+                // Then move up the current block slot index by 1
+                pointer p = current_block + current_block_slot;
+                current_block_slot++;
+                // Return the pointer to the allocated object
                 return p;
             }
             // If no available slots, allocate a new block
@@ -292,8 +292,17 @@ PoolAllocator<T, BlockSize>::allocate(size_type n)
         // Non-contiguous memory layout
         else
         {
+            // If not, check free list first
+            if (free_slots != nullptr)
+            {
+                // Pop the first available slot from the linked list
+                pointer p = reinterpret_cast<pointer>(free_slots);
+                Slot *prev = free_slots->prev;
+                free_slots = prev; // Move to the next slot in the list
+                return p;
+            }
             // Check whether we have available slots from current block
-            if (current_block != nullptr && current_block + current_block_slot < current_block_end)
+            else if (current_block != nullptr && current_block + current_block_slot < current_block_end)
             {
                 // Then move up the current block slot index by 1
                 Slot *p = reinterpret_cast<Slot *>(current_block);
@@ -301,15 +310,6 @@ PoolAllocator<T, BlockSize>::allocate(size_type n)
                 current_block_slot++;
                 // Return the pointer to the allocated object
                 return reinterpret_cast<pointer>(p);
-            }
-            // If not, check free list first
-            else if (free_slots != nullptr)
-            {
-                // Pop the first available slot from the linked list
-                pointer p = reinterpret_cast<pointer>(free_slots);
-                Slot *prev = free_slots->prev;
-                free_slots = prev; // Move to the next slot in the list
-                return p;
             }
             // If no available slots, allocate a new block
             else
