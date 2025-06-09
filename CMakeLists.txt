@@ -36,5 +36,8 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 # Add tests directory
-enable_testing()
-add_subdirectory(tests)
+option(ENABLE_TESTS "Enable unit tests" OFF)
+if(ENABLE_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()

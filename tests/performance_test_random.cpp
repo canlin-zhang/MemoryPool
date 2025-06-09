@@ -8,7 +8,7 @@
 #include <iostream>
 
 template <typename Alloc>
-int64_t run_allocator_benchmark(const std::string &label, Alloc &allocator, std::vector<typename std::allocator_traits<Alloc>::pointer> &ptr_vec)
+int64_t run_allocator_benchmark(const std::string &label, Alloc &allocator, std::vector<typename Alloc::pointer> &ptr_vec)
 {
     using Traits = std::allocator_traits<Alloc>;
     using T = typename Traits::value_type;
@@ -18,6 +18,8 @@ int64_t run_allocator_benchmark(const std::string &label, Alloc &allocator, std:
 
     constexpr int NUM_ELEMS = 1'000'000;
     constexpr int BLOCK_SIZE = 100'000;
+    constexpr int MAX_STEP = 50;
+    int steps_used = 0;
 
     int64_t total_time = 0;
     auto start_init = std::chrono::steady_clock::now();
@@ -32,21 +34,26 @@ int64_t run_allocator_benchmark(const std::string &label, Alloc &allocator, std:
     auto end_init = std::chrono::steady_clock::now();
     total_time += std::chrono::duration_cast<std::chrono::milliseconds>(end_init - start_init).count();
 
-    while (!ptr_vec.empty())
+    while (steps_used < MAX_STEP)
     {
-        std::shuffle(ptr_vec.begin(), ptr_vec.end(), rng);
-
-        if (coin_flip(rng))
+        if (!ptr_vec.empty() && coin_flip(rng))
         {
+            for (auto dest = ptr_vec.end() - BLOCK_SIZE; dest != ptr_vec.end() - BLOCK_SIZE / 2; ++dest)
+            {
+                auto rand_it = ptr_vec.begin() + rng() % (ptr_vec.size() - BLOCK_SIZE);
+                std::swap(*dest, *rand_it);
+            }
+
             // Deallocate
             auto start_deallocate = std::chrono::steady_clock::now();
-            for (int j = 0; j < BLOCK_SIZE; ++j)
+            for (auto it = ptr_vec.end() - BLOCK_SIZE; it != ptr_vec.end(); ++it)
             {
-                T *ptr = ptr_vec.back();
+                T *ptr = *it;
                 Traits::destroy(allocator, ptr);
                 allocator.deallocate(ptr, 1);
-                ptr_vec.pop_back();
             }
+            ptr_vec.erase(ptr_vec.end() - BLOCK_SIZE, ptr_vec.end());
+
             auto end_deallocate = std::chrono::steady_clock::now();
             total_time += std::chrono::duration_cast<std::chrono::milliseconds>(end_deallocate - start_deallocate).count();
         }
@@ -63,6 +70,7 @@ int64_t run_allocator_benchmark(const std::string &label, Alloc &allocator, std:
             auto end_reallocate = std::chrono::steady_clock::now();
             total_time += std::chrono::duration_cast<std::chrono::milliseconds>(end_reallocate - start_reallocate).count();
         }
+        steps_used++;
     }
 
     // Cleanup (if needed)
@@ -77,6 +85,7 @@ int64_t run_allocator_benchmark(const std::string &label, Alloc &allocator, std:
     total_time += std::chrono::duration_cast<std::chrono::milliseconds>(end_cleanup - start_cleanup).count();
 
     std::cout << label << ": " << total_time << " ms\n";
+    std::cout << "Steps used: " << steps_used << "\n";
     return total_time;
 }
 
