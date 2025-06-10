@@ -128,7 +128,7 @@ public:
     StackAllocator(const StackAllocator &) noexcept = default;
     StackAllocator(StackAllocator &&) noexcept = default;
     template <class U>
-    StackAllocator(const StackAllocator<U, BlockSize> &) noexcept {};
+    StackAllocator(const StackAllocator<U, BlockSize> &) noexcept {}
     ~StackAllocator() noexcept
     {
         while (!allocated_blocks.empty())
@@ -259,9 +259,9 @@ TEST_F(PoolAllocatorTest, allocator_perf)
     std::cout << std::left << std::setw(12) << "Pool"
               << std::right << std::setw(12) << pool_time
               << std::setw(15) << std::fixed << std::setprecision(1)
-              << (static_cast<double>(pool_time) / default_time) * 100 << "%" << "\n";
+              << (static_cast<long double>(pool_time) / default_time) * 100 << "%" << "\n";
     std::cout << std::left << std::setw(12) << "Stack"
               << std::right << std::setw(12) << stack_time
               << std::setw(15) << std::fixed << std::setprecision(1)
-              << (static_cast<double>(stack_time) / default_time) * 100 << "%" << "\n";
+              << (static_cast<long double>(stack_time) / default_time) * 100 << "%" << "\n";
 }
