@@ -94,7 +94,7 @@ int64_t run_allocator_benchmark(const std::string &label, Alloc &allocator, std:
     auto end_cleanup = std::chrono::steady_clock::now();
     total_time += std::chrono::duration_cast<std::chrono::microseconds>(end_cleanup - start_cleanup).count();
 
-    // std::cout << label << ": " << total_time << " us\n";
+    std::cout << label << ": " << total_time << " us\n";
     return total_time;
 }
 
@@ -129,7 +129,15 @@ public:
     StackAllocator(StackAllocator &&) noexcept = default;
     template <class U>
     StackAllocator(const StackAllocator<U, BlockSize> &) noexcept {};
-    ~StackAllocator() noexcept = default;
+    ~StackAllocator() noexcept
+    {
+        while (!allocated_blocks.empty())
+        {
+            pointer block = allocated_blocks.back();
+            allocated_blocks.pop_back();
+            std::allocator<T>().deallocate(block, BlockSize / sizeof(T));
+        }
+    }
 
     StackAllocator &operator=(const StackAllocator &) = delete;
     StackAllocator &operator=(StackAllocator &&) noexcept = default;
@@ -192,8 +200,10 @@ private:
         {
             stack.push(block + i);
         }
+        allocated_blocks.push_back(block); // Keep track of the allocated block
     }
     std::stack<pointer, std::vector<pointer>> stack; // Stack to hold allocated pointers
+    std::vector<pointer> allocated_blocks;           // Vector to hold allocated blocks
 };
 
 // Text fixture - pool allocator and default allocator
@@ -243,14 +253,14 @@ TEST_F(PoolAllocatorTest, allocator_perf)
               << std::setw(16) << "Relative (%)" << "\n"
               << std::fixed << std::setprecision(1);
 
-    std::cout << std::left  << std::setw(12) << "Default"
+    std::cout << std::left << std::setw(12) << "Default"
               << std::right << std::setw(12) << default_time
               << std::setw(16) << "100.0%" << "\n";
-    std::cout << std::left  << std::setw(12) << "Pool"
+    std::cout << std::left << std::setw(12) << "Pool"
               << std::right << std::setw(12) << pool_time
               << std::setw(15) << std::fixed << std::setprecision(1)
               << (static_cast<double>(pool_time) / default_time) * 100 << "%" << "\n";
-    std::cout << std::left  << std::setw(12) << "Stack"
+    std::cout << std::left << std::setw(12) << "Stack"
               << std::right << std::setw(12) << stack_time
               << std::setw(15) << std::fixed << std::setprecision(1)
               << (static_cast<double>(stack_time) / default_time) * 100 << "%" << "\n";

@@ -50,22 +50,13 @@ PoolAllocator<T, BlockSize>::PoolAllocator(const PoolAllocator &other) noexcept
 template <typename T, size_t BlockSize>
 PoolAllocator<T, BlockSize>::PoolAllocator(PoolAllocator &&other) noexcept
 {
-    // Move free blocks linked list
-    free_blocks = other.free_blocks;
-    // Move current block and slot index
-    current_block = other.current_block;
-    current_block_end = other.current_block_end;
+    // Move the memory blocks and free slots from the other allocator
+    memory_blocks = std::move(other.memory_blocks);
+    free_slots = std::move(other.free_slots);
     current_block_slot = other.current_block_slot;
 
-    // Move free slots linked list
-    free_slots = other.free_slots;
-
-    // Reset the other allocator
-    other.current_block = nullptr;
-    other.current_block_end = nullptr;
+    // Clear other allocator's states
     other.current_block_slot = 0;
-    other.free_slots = nullptr;
-    other.free_blocks = nullptr;
 }
 
 // Templated copy
@@ -80,33 +71,10 @@ PoolAllocator<T, BlockSize>::PoolAllocator(const PoolAllocator<U, BlockSize> &ot
 template <typename T, size_t BlockSize>
 PoolAllocator<T, BlockSize>::~PoolAllocator() noexcept
 {
-    // Simple case -> T is larger than Slot pointer
-    if constexpr (alignof(T) >= alignof(Slot))
+    // Free all memory blocks
+    for (pointer block : memory_blocks)
     {
-        // Calculate whole block alignment
-        constexpr size_type block_align = std::max(alignof(T), alignof(Block));
-
-        // Deallocate all blocks
-        while (free_blocks != nullptr)
-        {
-            Block *next = free_blocks->prev;
-            ::operator delete(free_blocks, std::align_val_t(block_align));
-            free_blocks = next;
-        }
-    }
-    // incontiguous memory layout
-    else
-    {
-        // Calculate whole block alignment
-        constexpr size_type block_align = std::max(alignof(Slot), alignof(Block));
-
-        // Delete by Slot alignment
-        while (free_blocks != nullptr)
-        {
-            Block *next = free_blocks->prev;
-            ::operator delete(free_blocks, std::align_val_t(block_align));
-            free_blocks = next;
-        }
+        ::operator delete(block, std::align_val_t(std::max(alignof(T), sizeof(T))));
     }
 }
 
@@ -115,22 +83,14 @@ template <typename T, size_t BlockSize>
 PoolAllocator<T, BlockSize> &
 PoolAllocator<T, BlockSize>::operator=(PoolAllocator &&other) noexcept
 {
-    // Move free blocks linked list
-    free_blocks = other.free_blocks;
-    // Move current block and slot index
-    current_block = other.current_block;
-    current_block_end = other.current_block_end;
+
+    // Move the memory blocks and free slots from the other allocator
+    memory_blocks = std::move(other.memory_blocks);
+    free_slots = std::move(other.free_slots);
     current_block_slot = other.current_block_slot;
 
-    // Move free slots linked list
-    free_slots = other.free_slots;
-
-    // Reset the other allocator
-    other.current_block = nullptr;
-    other.current_block_end = nullptr;
+    // Clear other allocator's states
     other.current_block_slot = 0;
-    other.free_slots = nullptr;
-    other.free_blocks = nullptr;
 
     return *this;
 }
@@ -153,90 +113,22 @@ PoolAllocator<T, BlockSize>::addressof(const_reference x) const noexcept
 template <typename T, size_t BlockSize>
 void PoolAllocator<T, BlockSize>::allocateBlock()
 {
-    // Simple case -> T is larger than Slot pointer
-    if constexpr (alignof(T) >= alignof(Slot))
+    // Calculate item alignment
+    constexpr size_type num_items = BlockSize / sizeof(T);
+
+    if (num_items < 1)
     {
-        // Maximum alignment required between Block and T
-        constexpr size_type block_align = std::max(alignof(T), alignof(Block));
-        constexpr size_type stride = std::max(sizeof(T), alignof(T));
-
-        // We'll allocate extra padding in case alignment adjustment is needed
-        constexpr size_type overhead = sizeof(Block) + alignof(T);
-        constexpr size_type total_size = BlockSize + overhead;
-
-        // Allocate raw memory
-        void *raw = ::operator new(total_size, std::align_val_t(block_align));
-
-        // Block metadata at beginning
-        Block *new_block = reinterpret_cast<Block *>(raw);
-
-        // Find aligned start of T objects after metadata
-        void *data_start = static_cast<char *>(raw) + sizeof(Block);
-        uintptr_t aligned = (reinterpret_cast<uintptr_t>(data_start) + alignof(T) - 1) & ~(alignof(T) - 1);
-        pointer block = reinterpret_cast<pointer>(aligned);
-
-        // Compute how many T objects fit from `block` to end of allocation
-        size_type available_bytes = total_size - (aligned - reinterpret_cast<uintptr_t>(raw));
-        size_type numObjects = available_bytes / stride;
-
-        if (numObjects < 1)
-        {
-            ::operator delete(raw, std::align_val_t(block_align));
-            throw std::bad_alloc();
-        }
-
-        // Store block metadata
-        new_block->ptr = block;
-        new_block->prev = free_blocks;
-        free_blocks = new_block;
-
-        // Update bump pointer state
-        current_block = block;
-        current_block_end = block + numObjects;
-        current_block_slot = 0;
+        throw std::bad_alloc();
     }
-    // Second case -> just allocate Slot structs, accept non-contiguous memory layout for T.
-    else
-    {
-        // Maximum alignment required between Block and T
-        constexpr size_type block_align = std::max(alignof(Slot), alignof(Block));
-        constexpr size_type stride = std::max(sizeof(Slot), alignof(Slot));
 
-        // We'll allocate extra padding in case alignment adjustment is needed
-        constexpr size_type overhead = sizeof(Block) + alignof(Slot);
-        constexpr size_type total_size = BlockSize + overhead;
+    // Allocate a new block of memory
+    pointer new_block = reinterpret_cast<pointer>(::operator new(BlockSize, std::align_val_t(alignof(T))));
 
-        // Allocate raw memory
-        void *raw = ::operator new(total_size, std::align_val_t(block_align));
+    // Push the new block to the free blocks stack
+    memory_blocks.push_back(new_block);
 
-        // Block metadata at beginning
-        Block *new_block = reinterpret_cast<Block *>(raw);
-
-        // Find aligned start of T objects after metadata
-        void *data_start = static_cast<char *>(raw) + sizeof(Block);
-        uintptr_t aligned = (reinterpret_cast<uintptr_t>(data_start) + alignof(Slot) - 1) & ~(alignof(Slot) - 1);
-        pointer block = reinterpret_cast<pointer>(aligned);
-
-        // Compute how many T objects fit from `block` to end of allocation
-        size_type available_bytes = total_size - (aligned - reinterpret_cast<uintptr_t>(raw));
-        size_type numObjects = available_bytes / stride;
-
-        if (numObjects < 1)
-        {
-            ::operator delete(raw, std::align_val_t(block_align));
-            throw std::bad_alloc();
-        }
-
-        // Store block metadata
-        new_block->ptr = block;
-        new_block->prev = free_blocks;
-        free_blocks = new_block;
-
-        // Update bump pointer state
-        current_block = block;
-        current_block_end = block + numObjects;
-        current_block_slot = 0;
-    }
+    // Reset block counter
+    current_block_slot = 0;
 }
 
 // Allocate a single object
@@ -257,70 +149,34 @@ PoolAllocator<T, BlockSize>::allocate(size_type n)
     // Handle single object allocation
     else
     {
-        // Simple case -> T is larger than Slot pointer, contiguous memory layout
-        if constexpr (alignof(T) >= alignof(Slot))
+        constexpr size_type num_items = BlockSize / sizeof(T);
+
+        // Check free slots first
+        if (!free_slots.empty())
         {
-            // If not, check free list first
-            if (free_slots != nullptr)
-            {
-                // Pop the first available slot from the linked list
-                pointer p = reinterpret_cast<pointer>(free_slots);
-                Slot *prev = free_slots->prev;
-                free_slots = prev; // Move to the next slot in the list
-                return p;
-            }
-            // Check whether we have available slots from current block
-            else if (current_block != nullptr && current_block + current_block_slot < current_block_end)
-            {
-                // Then move up the current block slot index by 1
-                pointer p = current_block + current_block_slot;
-                current_block_slot++;
-                // Return the pointer to the allocated object
-                return p;
-            }
-            // If no available slots, allocate a new block
-            else
-            {
-                // Allocate a new block
-                allocateBlock();
-                // Then allocate the object from the new block
-                pointer p = current_block + current_block_slot;
-                current_block_slot++;
-                return p;
-            }
+            // Pop the top slot from the free slots stack
+            pointer p = free_slots.top();
+            free_slots.pop();
+            return p;
         }
-        // Non-contiguous memory layout
+        // Check current block slot
+        else if (!memory_blocks.empty() && current_block_slot < num_items)
+        {
+            // Increment by 1
+            pointer p = memory_blocks.back() + current_block_slot;
+            current_block_slot++;
+            return p;
+        }
+        // Allocate a new block
         else
         {
-            // If not, check free list first
-            if (free_slots != nullptr)
-            {
-                // Pop the first available slot from the linked list
-                pointer p = reinterpret_cast<pointer>(free_slots);
-                Slot *prev = free_slots->prev;
-                free_slots = prev; // Move to the next slot in the list
-                return p;
-            }
-            // Check whether we have available slots from current block
-            else if (current_block != nullptr && current_block + current_block_slot < current_block_end)
-            {
-                // Then move up the current block slot index by 1
-                Slot *p = reinterpret_cast<Slot *>(current_block);
-                p += current_block_slot;
-                current_block_slot++;
-                // Return the pointer to the allocated object
-                return reinterpret_cast<pointer>(p);
-            }
-            // If no available slots, allocate a new block
-            else
-            {
-                // Allocate a new block
-                allocateBlock();
-                // Then allocate the object from the new block
-                Slot *p = reinterpret_cast<Slot *>(current_block + current_block_slot);
-                current_block_slot++;
-                return reinterpret_cast<pointer>(p);
-            }
+            // Allocate a new block of memory
+            allocateBlock();
+            pointer p = memory_blocks.back();
+            // Reset current block slot
+            current_block_slot++; // Start from the first slot
+            // Return the first slot in the new block
+            return p;
         }
     }
 }
@@ -343,41 +199,10 @@ void PoolAllocator<T, BlockSize>::deallocate(pointer p, size_type n)
     // We push it back to the available slots
     else
     {
-        // Simple case -> T is larger than Slot pointer, contiguous memory layout
-        if constexpr (alignof(T) >= alignof(Slot))
+        // Push pointer back to free slots stack
+        if (p != nullptr)
         {
-            // Fill up available slot linked list
-            if (free_slots == nullptr)
-            {
-                // Create a new slot
-                free_slots = reinterpret_cast<Slot *>(p);
-                free_slots->prev = nullptr;
-            }
-            else
-            {
-                // Push the pointer to the front of the linked list
-                Slot *new_slot = reinterpret_cast<Slot *>(p);
-                new_slot->prev = free_slots; // Link to the previous head
-                free_slots = new_slot;
-            }
-        }
-        // incontiguous memory layout
-        else
-        {
-            // Fill up available slot linked list
-            if (free_slots == nullptr)
-            {
-                // Create a new slot
-                free_slots = reinterpret_cast<Slot *>(p);
-                free_slots->prev = nullptr;
-            }
-            else
-            {
-                // Push the pointer to the front of the linked list
-                Slot *new_slot = reinterpret_cast<Slot *>(p);
-                new_slot->prev = free_slots; // Link to the previous head
-                free_slots = new_slot;
-            }
+            free_slots.push(p);
         }
     }
 }

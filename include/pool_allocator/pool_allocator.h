@@ -131,26 +131,12 @@ private:
     // Allocate a memory block
     void allocateBlock();
 
-    // Maintain a singly linked list of available blocks, tracking only by allocateBlock
-    struct Block
-    {
-        pointer ptr;
-        Block *prev;
-    };
+    // Pointer to blocks of memory
+    std::vector<pointer> memory_blocks;
+    size_type current_block_slot = 0; // Current slot in the current block
 
-    // Internal counter to track the latest available position in the block
-    Block *free_blocks = nullptr;
-    size_type current_block_slot = 0;
-    pointer current_block = nullptr;
-    pointer current_block_end = nullptr;
-
-    // Maintain a singly linked list of available slots, tracking only by deallocation
-    struct Slot
-    {
-        Slot *prev;
-    };
-
-    Slot *free_slots = nullptr;
+    // Free list
+    std::stack<pointer, std::vector<pointer>> free_slots;
 };
 
 // Operators
