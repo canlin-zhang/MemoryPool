@@ -74,7 +74,7 @@ PoolAllocator<T, BlockSize>::~PoolAllocator() noexcept
     // Free all memory blocks
     for (pointer block : memory_blocks)
     {
-        ::operator delete(block, std::align_val_t(std::max(alignof(T), sizeof(T))));
+        ::operator delete(block, std::align_val_t(alignof(T)));
     }
 }
 
