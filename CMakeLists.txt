@@ -23,6 +23,25 @@ if(ENABLE_UBSAN)
     endif()
 endif()
 
+# ASAN options
+option(ENABLE_ASAN "Enable Address Sanitizer" OFF)
+if(ENABLE_ASAN)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        add_compile_options(
+            -fsanitize=address
+            -fno-omit-frame-pointer
+            -Wall
+            -Wextra
+            -Wpedantic
+            -Wconversion
+            -Wshadow)
+        add_link_options(
+            -fsanitize=address)
+    else()
+        message(WARNING "ASAN is only supported with GCC and Clang.")
+    endif()
+endif()
+
 # Export include directories
 add_library(pool_allocator INTERFACE)
 target_include_directories(pool_allocator

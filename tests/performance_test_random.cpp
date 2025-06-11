@@ -135,7 +135,7 @@ public:
         {
             pointer block = allocated_blocks.back();
             allocated_blocks.pop_back();
-            std::allocator<T>().deallocate(block, BlockSize / sizeof(T));
+            std::allocator<T>().deallocate(block, BlockSize);
         }
     }
 
