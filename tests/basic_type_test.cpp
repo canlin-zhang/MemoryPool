@@ -6,7 +6,7 @@
 // Test fixture: Memory pool of int, double and char
 class PoolAllocatorTest : public ::testing::Test
 {
-protected:
+  protected:
     // This can be used to set up any common state for the tests
     PoolAllocator<int> intPool;
     PoolAllocator<double> doublePool;

@@ -30,28 +30,28 @@
  * 3. Added unique_ptr its necessary helper functions
  */
 
-#include <climits>
-#include <iostream>
-#include <cstddef>
-#include <memory>
 #include <algorithm>
-#include <vector>
 #include <cassert>
+#include <climits>
+#include <cstddef>
+#include <iostream>
+#include <memory>
 #include <stack>
 #include <stdlib.h>
+#include <vector>
 
 template <typename T, size_t BlockSize = 4096>
 class PoolAllocator
 {
-public:
+  public:
     /* Member types */
     using value_type = T;
-    using pointer = T *;
-    using const_pointer = const T *;
-    using void_pointer = void *;
-    using const_void_pointer = const void *;
-    using reference = T &;
-    using const_reference = const T &;
+    using pointer = T*;
+    using const_pointer = const T*;
+    using void_pointer = void*;
+    using const_void_pointer = const void*;
+    using reference = T&;
+    using const_reference = const T&;
     using size_type = std::size_t;
     using difference_type = std::ptrdiff_t;
     using propagate_on_container_copy_assignment = std::false_type;
@@ -70,20 +70,20 @@ public:
     // Default constructor
     PoolAllocator() noexcept;
     // Copy constructor
-    PoolAllocator(const PoolAllocator &other) noexcept;
+    PoolAllocator(const PoolAllocator& other) noexcept;
     // Move constructor
-    PoolAllocator(PoolAllocator &&other) noexcept;
+    PoolAllocator(PoolAllocator&& other) noexcept;
     // Templated copy
     template <class U>
-    PoolAllocator(const PoolAllocator<U, BlockSize> &other) noexcept;
+    PoolAllocator(const PoolAllocator<U, BlockSize>& other) noexcept;
     // Destructor
     ~PoolAllocator() noexcept;
 
     // Assignment operator
     // We do not allow copy assignment for allocators
-    PoolAllocator &operator=(const PoolAllocator &other) = delete;
+    PoolAllocator& operator=(const PoolAllocator& other) = delete;
     // Move assignment operator
-    PoolAllocator &operator=(PoolAllocator &&other) noexcept;
+    PoolAllocator& operator=(PoolAllocator&& other) noexcept;
 
     // Address functions
     pointer addressof(reference x) const noexcept;
@@ -95,9 +95,9 @@ public:
 
     // Construct and destory functions
     template <class U, class... Args>
-    void construct(U *p, Args &&...args) noexcept;
+    void construct(U* p, Args&&... args) noexcept;
     template <class U>
-    void destroy(U *p) noexcept;
+    void destroy(U* p) noexcept;
 
     // Maximum size of the pool
     size_type max_size() const noexcept;
@@ -107,26 +107,26 @@ public:
     struct Deleter
     {
         // Pool address so we know which pool to use for deletion
-        PoolAllocator *allocator = nullptr;
+        PoolAllocator* allocator = nullptr;
         template <typename U>
-        void operator()(U *ptr) const noexcept;
+        void operator()(U* ptr) const noexcept;
     };
 
     // make unique
     template <class... Args>
-    std::unique_ptr<T, Deleter> make_unique(Args &&...args);
+    std::unique_ptr<T, Deleter> make_unique(Args&&... args);
 
     // Create new object with empty constructor
     pointer new_object();
 
     // Create new object with arguments
     template <class... Args>
-    pointer new_object(Args &&...args);
+    pointer new_object(Args&&... args);
 
     // Delete an object
     void delete_object(pointer p);
 
-private:
+  private:
     // Allocate a memory block
     void allocateBlock();
 
@@ -141,15 +141,13 @@ private:
 // Operators
 // Operator != and ==
 template <typename T1, size_t B1, typename T2, size_t B2>
-inline bool operator==(const PoolAllocator<T1, B1> &,
-                       const PoolAllocator<T2, B2> &) noexcept
+inline bool operator==(const PoolAllocator<T1, B1>&, const PoolAllocator<T2, B2>&) noexcept
 {
     return B1 == B2;
 }
 
 template <typename T1, size_t B1, typename T2, size_t B2>
-inline bool operator!=(const PoolAllocator<T1, B1> &a,
-                       const PoolAllocator<T2, B2> &b) noexcept
+inline bool operator!=(const PoolAllocator<T1, B1>& a, const PoolAllocator<T2, B2>& b) noexcept
 {
     return !(a == b);
 }

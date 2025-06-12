@@ -6,7 +6,8 @@ struct IncompleteStruct;
 TEST(PoolAllocatorTest, forward_declaration_test)
 {
     // Can construct a unique_ptr with an incomplete type
-    using IncompletePtr = std::unique_ptr<IncompleteStruct, PoolAllocator<IncompleteStruct>::Deleter>;
+    using IncompletePtr =
+        std::unique_ptr<IncompleteStruct, PoolAllocator<IncompleteStruct>::Deleter>;
 
     // Can create a memory pool for an incomplete type
     PoolAllocator<IncompleteStruct> pool;
@@ -22,6 +23,6 @@ TEST(PoolAllocatorTest, forward_declaration_test)
 struct IncompleteStruct
 {
     int data = 42;                    // This is just a placeholder to make the struct complete
-    IncompleteStruct *next = nullptr; // Pointer to the next incomplete struct
+    IncompleteStruct* next = nullptr; // Pointer to the next incomplete struct
     IncompleteStruct() = default;     // Default constructor
 };

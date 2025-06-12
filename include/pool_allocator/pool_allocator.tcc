@@ -32,7 +32,6 @@
 
 #include "pool_allocator.h"
 
-
 #include <limits>
 
 // Default constructor
@@ -43,14 +42,14 @@ PoolAllocator<T, BlockSize>::PoolAllocator() noexcept
 
 // Copy constructor
 template <typename T, size_t BlockSize>
-PoolAllocator<T, BlockSize>::PoolAllocator(const PoolAllocator &other) noexcept
+PoolAllocator<T, BlockSize>::PoolAllocator(const PoolAllocator& other) noexcept
 {
     // Nothing should be done here
 }
 
 // Move constructor
 template <typename T, size_t BlockSize>
-PoolAllocator<T, BlockSize>::PoolAllocator(PoolAllocator &&other) noexcept
+PoolAllocator<T, BlockSize>::PoolAllocator(PoolAllocator&& other) noexcept
 {
     // Move the memory blocks and free slots from the other allocator
     memory_blocks = std::move(other.memory_blocks);
@@ -64,7 +63,7 @@ PoolAllocator<T, BlockSize>::PoolAllocator(PoolAllocator &&other) noexcept
 // Templated copy
 template <typename T, size_t BlockSize>
 template <class U>
-PoolAllocator<T, BlockSize>::PoolAllocator(const PoolAllocator<U, BlockSize> &other) noexcept
+PoolAllocator<T, BlockSize>::PoolAllocator(const PoolAllocator<U, BlockSize>& other) noexcept
 {
     // Nothing should be done here
 }
@@ -82,8 +81,7 @@ PoolAllocator<T, BlockSize>::~PoolAllocator() noexcept
 
 // Move assignment operator
 template <typename T, size_t BlockSize>
-PoolAllocator<T, BlockSize> &
-PoolAllocator<T, BlockSize>::operator=(PoolAllocator &&other) noexcept
+PoolAllocator<T, BlockSize>& PoolAllocator<T, BlockSize>::operator=(PoolAllocator&& other) noexcept
 {
 
     // Move the memory blocks and free slots from the other allocator
@@ -124,7 +122,8 @@ void PoolAllocator<T, BlockSize>::allocateBlock()
     }
 
     // Allocate a new block of memory
-    pointer new_block = reinterpret_cast<pointer>(::operator new(BlockSize, std::align_val_t(alignof(T))));
+    pointer new_block =
+        reinterpret_cast<pointer>(::operator new(BlockSize, std::align_val_t(alignof(T))));
 
     // Push the new block to the free blocks stack
     memory_blocks.push_back(new_block);
@@ -135,8 +134,7 @@ void PoolAllocator<T, BlockSize>::allocateBlock()
 
 // Allocate a single object
 template <typename T, size_t BlockSize>
-typename PoolAllocator<T, BlockSize>::pointer
-PoolAllocator<T, BlockSize>::allocate(size_type n)
+typename PoolAllocator<T, BlockSize>::pointer PoolAllocator<T, BlockSize>::allocate(size_type n)
 {
     // Do nothing if n is 0
     if (n == 0)
@@ -212,7 +210,7 @@ void PoolAllocator<T, BlockSize>::deallocate(pointer p, size_type n)
 // Construct an object in the allocated memory
 template <typename T, size_t BlockSize>
 template <class U, class... Args>
-void PoolAllocator<T, BlockSize>::construct(U *p, Args &&...args) noexcept
+void PoolAllocator<T, BlockSize>::construct(U* p, Args&&... args) noexcept
 {
     // Use placement new to construct the object in the allocated memory
     new (p) U(std::forward<Args>(args)...);
@@ -220,7 +218,7 @@ void PoolAllocator<T, BlockSize>::construct(U *p, Args &&...args) noexcept
 // Destroy an object in the allocated memory
 template <typename T, size_t BlockSize>
 template <class U>
-void PoolAllocator<T, BlockSize>::destroy(U *p) noexcept
+void PoolAllocator<T, BlockSize>::destroy(U* p) noexcept
 {
     // Call the destructor of the object
     p->~U();
@@ -239,7 +237,7 @@ PoolAllocator<T, BlockSize>::max_size() const noexcept
 // Deleter for unique_ptr
 template <typename T, size_t BlockSize>
 template <typename U>
-void PoolAllocator<T, BlockSize>::Deleter::operator()(U *ptr) const noexcept
+void PoolAllocator<T, BlockSize>::Deleter::operator()(U* ptr) const noexcept
 {
     static_assert(sizeof(U) > 0, "Deleter cannot be used with incomplete types");
     // Call delete_object on the allocator
@@ -250,13 +248,16 @@ void PoolAllocator<T, BlockSize>::Deleter::operator()(U *ptr) const noexcept
 template <typename T, size_t BlockSize>
 template <class... Args>
 inline std::unique_ptr<T, typename PoolAllocator<T, BlockSize>::Deleter>
-PoolAllocator<T, BlockSize>::make_unique(Args &&...args)
+PoolAllocator<T, BlockSize>::make_unique(Args&&... args)
 {
     pointer raw = allocate(1);
-    try {
+    try
+    {
         // Construct the object in the allocated memory
         construct(raw, std::forward<Args>(args)...);
-    } catch (...) {
+    }
+    catch (...)
+    {
         deallocate(raw, 1);
         throw;
     }
@@ -266,15 +267,17 @@ PoolAllocator<T, BlockSize>::make_unique(Args &&...args)
 // Create a new object in the pool
 // Default constructor
 template <typename T, size_t BlockSize>
-typename PoolAllocator<T, BlockSize>::pointer
-PoolAllocator<T, BlockSize>::new_object()
+typename PoolAllocator<T, BlockSize>::pointer PoolAllocator<T, BlockSize>::new_object()
 {
     // Allocate a single object
     pointer p = allocate(1);
-    try {
+    try
+    {
         // Construct the object in the allocated memory
         construct(p);
-    } catch (...) {
+    }
+    catch (...)
+    {
         deallocate(p, 1);
         throw;
     }
@@ -285,14 +288,17 @@ PoolAllocator<T, BlockSize>::new_object()
 template <typename T, size_t BlockSize>
 template <class... Args>
 typename PoolAllocator<T, BlockSize>::pointer
-PoolAllocator<T, BlockSize>::new_object(Args &&...args)
+PoolAllocator<T, BlockSize>::new_object(Args&&... args)
 {
     // Allocate a single object
     pointer p = allocate(1);
-    try {
+    try
+    {
         // Construct the object in the allocated memory with arguments
         construct(p, std::forward<Args>(args)...);
-    } catch (...) {
+    }
+    catch (...)
+    {
         deallocate(p, 1);
         throw;
     }

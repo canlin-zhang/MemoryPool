@@ -1,20 +1,20 @@
-#include <pool_allocator/pool_allocator.h>
 #include <gtest/gtest.h>
+#include <map>
+#include <pool_allocator/pool_allocator.h>
 #include <string>
 #include <vector>
-#include <map>
 
 // Test complex types
 // Test fixture: Memory pool of std::string, std::vector<int>, and std::map<std::string, int>
 class PoolAllocatorTest : public ::testing::Test
 {
-public:
+  public:
     struct alignas(64) AlignedStruct
     {
         char x;
     };
 
-protected:
+  protected:
     PoolAllocator<std::string> stringPool;
     PoolAllocator<std::vector<int>> vectorPool;
     PoolAllocator<std::map<std::string, int>> mapPool;
@@ -53,7 +53,8 @@ TEST_F(PoolAllocatorTest, map_allocation)
 // Test allocation of a struct with alignment requirements
 TEST_F(PoolAllocatorTest, aligned_struct_allocation)
 {
-    EXPECT_LE(sizeof(AlignedStruct), alignof(AlignedStruct)); // Ensure size is less than or equal to alignment
+    EXPECT_LE(sizeof(AlignedStruct),
+              alignof(AlignedStruct)); // Ensure size is less than or equal to alignment
 
     auto alignedPtr = alignedPool.new_object();
     alignedPtr->x = 'A';
