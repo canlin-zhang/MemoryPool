@@ -253,7 +253,13 @@ inline std::unique_ptr<T, typename PoolAllocator<T, BlockSize>::Deleter>
 PoolAllocator<T, BlockSize>::make_unique(Args &&...args)
 {
     pointer raw = allocate(1);
-    construct(raw, std::forward<Args>(args)...);
+    try {
+        // Construct the object in the allocated memory
+        construct(raw, std::forward<Args>(args)...);
+    } catch (...) {
+        deallocate(raw, 1);
+        throw;
+    }
     return std::unique_ptr<T, Deleter>(raw, Deleter{this});
 }
 
@@ -265,8 +271,13 @@ PoolAllocator<T, BlockSize>::new_object()
 {
     // Allocate a single object
     pointer p = allocate(1);
-    // Construct the object in the allocated memory
-    construct(p);
+    try {
+        // Construct the object in the allocated memory
+        construct(p);
+    } catch (...) {
+        deallocate(p, 1);
+        throw;
+    }
     return p;
 }
 
@@ -278,8 +289,13 @@ PoolAllocator<T, BlockSize>::new_object(Args &&...args)
 {
     // Allocate a single object
     pointer p = allocate(1);
-    // Construct the object in the allocated memory with arguments
-    construct(p, std::forward<Args>(args)...);
+    try {
+        // Construct the object in the allocated memory with arguments
+        construct(p, std::forward<Args>(args)...);
+    } catch (...) {
+        deallocate(p, 1);
+        throw;
+    }
     return p;
 }
 
