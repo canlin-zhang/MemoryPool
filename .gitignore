@@ -16,9 +16,6 @@
 # Compiled Executables
 MemoryPool_test
 
-# VS Code
-.vscode/
-
 # Help tools that honor '.gitignore' (redundant for Git itself).
 /.git
 
@@ -47,10 +44,6 @@ MemoryPool_test
 
 # QtCreator files.
 /CMakeLists.txt.user*
-
-# Visual Studio Code
-/.vscode/
-/.cache/
 
 # Visual Studio work directory
 /.vs/
