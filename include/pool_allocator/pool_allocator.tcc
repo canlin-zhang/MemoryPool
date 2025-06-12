@@ -33,6 +33,8 @@
 #ifndef POOL_ALLOCATOR_TCC
 #define POOL_ALLOCATOR_TCC
 
+#include <limits>
+
 // Default constructor
 template <typename T, size_t BlockSize>
 PoolAllocator<T, BlockSize>::PoolAllocator() noexcept
