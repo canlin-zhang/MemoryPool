@@ -1,3 +1,5 @@
+#pragma once
+
 /* Original copyright info */
 /*-
  * Copyright (c) 2013 Cosku Acay, http://www.coskuacay.com
@@ -30,8 +32,6 @@
 
 #include "pool_allocator.h"
 
-#ifndef POOL_ALLOCATOR_TCC
-#define POOL_ALLOCATOR_TCC
 
 #include <limits>
 
@@ -292,5 +292,3 @@ void PoolAllocator<T, BlockSize>::delete_object(pointer p)
     // Deallocate the object
     deallocate(p, 1);
 }
-
-#endif // POOL_ALLOCATOR_TCC

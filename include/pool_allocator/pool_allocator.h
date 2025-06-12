@@ -1,3 +1,5 @@
+#pragma once
+
 /* Original copyright info */
 /*-
  * Copyright (c) 2013 Cosku Acay, http://www.coskuacay.com
@@ -27,9 +29,6 @@
  * 2. Changed block and slot tracking to use std::stack backed by std::vector
  * 3. Added unique_ptr its necessary helper functions
  */
-
-#ifndef POOL_ALLOCATOR_H
-#define POOL_ALLOCATOR_H
 
 #include <climits>
 #include <iostream>
@@ -157,5 +156,3 @@ inline bool operator!=(const PoolAllocator<T1, B1> &a,
 
 // include the implementation file
 #include "pool_allocator.tcc"
-
-#endif // POOL_ALLOCATOR_H

@@ -25,8 +25,7 @@
  * This demostrates how to use alloctor_traits (specifically with MemoryPool)
  */
 
-#ifndef STACK_ALLOC_H
-#define STACK_ALLOC_H
+#pragma once
 
 #include <memory>
 #include <stdexcept>
@@ -94,5 +93,3 @@ private:
   allocator allocator_;
   Node *head_ = nullptr;
 };
-
-#endif // STACK_ALLOC_H
