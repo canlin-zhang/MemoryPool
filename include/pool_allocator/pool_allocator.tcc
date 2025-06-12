@@ -230,7 +230,7 @@ typename PoolAllocator<T, BlockSize>::size_type
 PoolAllocator<T, BlockSize>::max_size() const noexcept
 {
     // Calculate the maximum number of objects that can be allocated in a block
-    return size_type(-1) / sizeof(T);
+    return std::numeric_limits<PoolAllocator<T, BlockSize>::size_type>::max() / sizeof(T);
 }
 
 // Unique pointer support
