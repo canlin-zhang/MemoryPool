@@ -1,0 +1,44 @@
+name: Coverage
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  coverage:
+    name: Build, Test and Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lcov
+
+      - name: Configure CMake with Coverage
+        run: |
+          cmake -S . -B build -DENABLE_COVERAGE=ON -DENABLE_TESTS=ON
+
+      - name: Build project
+        run: cmake --build build -- -j$(nproc)
+
+      - name: Run coverage target
+        run: cmake --build build --target coverage
+
+      - name: Upload coverage report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: build/coverage-report
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: build/coverage.info
+          fail_ci_if_error: true
