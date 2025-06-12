@@ -42,6 +42,15 @@ if(ENABLE_ASAN)
     endif()
 endif()
 
+# Enable code coverage reporting
+option(ENABLE_COVERAGE "Enable coverage reporting" OFF)
+if(ENABLE_COVERAGE)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-O0 -g --coverage)
+    add_link_options(--coverage)
+  endif()
+endif()
+
 # Export include directories
 add_library(pool_allocator INTERFACE)
 target_include_directories(pool_allocator
@@ -64,6 +73,26 @@ install(EXPORT MemoryPoolTargets
     DESTINATION cmake
 )
 install(FILES cmake/MemoryPoolConfig.cmake DESTINATION cmake)
+
+# Coverage target
+if(ENABLE_COVERAGE)
+  find_program(LCOV_EXEC lcov)
+  find_program(GENHTML_EXEC genhtml)
+  if(LCOV_EXEC AND GENHTML_EXEC)
+    add_custom_target(coverage
+      COMMAND ${CMAKE_COMMAND} --build . --target all
+      COMMAND ctest --output-on-failure
+      COMMAND ${LCOV_EXEC} --capture --directory ${CMAKE_BINARY_DIR} --output-file coverage.info
+      COMMAND ${LCOV_EXEC} --remove coverage.info '/usr/*' --output-file coverage.filtered.info
+      COMMAND ${GENHTML_EXEC} coverage.filtered.info --output-directory coverage-report
+      WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+      COMMENT "Generating code coverage report"
+      VERBATIM
+    )
+  else()
+    message(WARNING "lcov or genhtml not found - coverage target unavailable")
+  endif()
+endif()
 
 # Add tests directory
 option(ENABLE_TESTS "Enable unit tests" OFF)
