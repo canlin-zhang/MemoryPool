@@ -1,19 +1,16 @@
 #include <gtest/gtest.h>
 #include <pool_allocator/pool_allocator.h>
+#include <pool_allocator/unique_helpers.hpp>
 
 struct IncompleteStruct;
 
 TEST(PoolAllocatorTest, forward_declaration_test)
 {
-    // Can construct a unique_ptr with an incomplete type
-    using IncompletePtr =
-        std::unique_ptr<IncompleteStruct, PoolAllocator<IncompleteStruct>::Deleter>;
-
     // Can create a memory pool for an incomplete type
     PoolAllocator<IncompleteStruct> pool;
 
     // Test make unique with incomplete type
-    IncompletePtr ptr = pool.make_unique();
+    auto ptr = pool_make_unique<IncompleteStruct>(pool);
     ASSERT_NE(ptr, nullptr); // Ensure the pointer is not null
 
     // The code should compile to here.
@@ -26,3 +23,11 @@ struct IncompleteStruct
     IncompleteStruct* next = nullptr; // Pointer to the next incomplete struct
     IncompleteStruct() = default;     // Default constructor
 };
+
+// Test data to ensure the struct is complete
+TEST(PoolAllocatorTest, complete_struct_test)
+{
+    IncompleteStruct complete;
+    ASSERT_EQ(complete.data, 42);      // Ensure the data member is accessible
+    ASSERT_EQ(complete.next, nullptr); // Ensure the next pointer is initialized to nullptr
+}
