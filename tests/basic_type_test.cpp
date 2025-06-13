@@ -1,4 +1,3 @@
-#include <pool_allocator/general_helpers.hpp>
 #include <pool_allocator/pool_allocator.h>
 
 #include <gtest/gtest.h>
@@ -15,19 +14,29 @@ class PoolAllocatorTest : public ::testing::Test
 };
 
 // Single element allocation and deallocation
-TEST_F(PoolAllocatorTest, basic_type_allocation_deallocation)
+TEST_F(PoolAllocatorTest, basic_type_allocation)
 {
-    auto intPtr = new_object<int>(intPool, 42);
+    auto intPtr = intPool.new_object(42);
     EXPECT_EQ(*intPtr, 42);
-    delete_object<int>(intPool, intPtr);
 
-    auto doublePtr = new_object<double>(doublePool, 3.14);
+    auto doublePtr = doublePool.new_object(3.14);
     EXPECT_DOUBLE_EQ(*doublePtr, 3.14);
-    delete_object<double>(doublePool, doublePtr);
 
-    auto charPtr = new_object<char>(charPool, 'A');
+    auto charPtr = charPool.new_object('A');
     EXPECT_EQ(*charPtr, 'A');
-    delete_object<char>(charPool, charPtr);
+}
+
+// Deallocate single elements
+TEST_F(PoolAllocatorTest, basic_type_deallocation)
+{
+    auto intPtr = intPool.new_object(42);
+    intPool.delete_object(intPtr);
+
+    auto doublePtr = doublePool.new_object(3.14);
+    doublePool.delete_object(doublePtr);
+
+    auto charPtr = charPool.new_object('A');
+    charPool.delete_object(charPtr);
 }
 
 // Allocate multiple elements

@@ -232,3 +232,85 @@ PoolAllocator<T, BlockSize>::max_size() const noexcept
     // Calculate the maximum number of objects that can be allocated in a block
     return std::numeric_limits<PoolAllocator<T, BlockSize>::size_type>::max() / sizeof(T);
 }
+
+// Unique pointer support
+// Deleter for unique_ptr
+template <typename T, size_t BlockSize>
+template <typename U>
+void PoolAllocator<T, BlockSize>::Deleter::operator()(U* ptr) const noexcept
+{
+    static_assert(sizeof(U) > 0, "Deleter cannot be used with incomplete types");
+    // Call delete_object on the allocator
+    allocator->delete_object(ptr);
+}
+
+// Create a unique pointer with a custom deleter
+template <typename T, size_t BlockSize>
+template <class... Args>
+inline std::unique_ptr<T, typename PoolAllocator<T, BlockSize>::Deleter>
+PoolAllocator<T, BlockSize>::make_unique(Args&&... args)
+{
+    pointer raw = allocate(1);
+    try
+    {
+        // Construct the object in the allocated memory
+        construct(raw, std::forward<Args>(args)...);
+    }
+    catch (...)
+    {
+        deallocate(raw, 1);
+        throw;
+    }
+    return std::unique_ptr<T, Deleter>(raw, Deleter{this});
+}
+
+// Create a new object in the pool
+// Default constructor
+template <typename T, size_t BlockSize>
+typename PoolAllocator<T, BlockSize>::pointer PoolAllocator<T, BlockSize>::new_object()
+{
+    // Allocate a single object
+    pointer p = allocate(1);
+    try
+    {
+        // Construct the object in the allocated memory
+        construct(p);
+    }
+    catch (...)
+    {
+        deallocate(p, 1);
+        throw;
+    }
+    return p;
+}
+
+// Create a new object in the pool with arguments
+template <typename T, size_t BlockSize>
+template <class... Args>
+typename PoolAllocator<T, BlockSize>::pointer
+PoolAllocator<T, BlockSize>::new_object(Args&&... args)
+{
+    // Allocate a single object
+    pointer p = allocate(1);
+    try
+    {
+        // Construct the object in the allocated memory with arguments
+        construct(p, std::forward<Args>(args)...);
+    }
+    catch (...)
+    {
+        deallocate(p, 1);
+        throw;
+    }
+    return p;
+}
+
+// Delete an object in the pool
+template <typename T, size_t BlockSize>
+void PoolAllocator<T, BlockSize>::delete_object(pointer p)
+{
+    // Call the destructor of the object
+    destroy(p);
+    // Deallocate the object
+    deallocate(p, 1);
+}
