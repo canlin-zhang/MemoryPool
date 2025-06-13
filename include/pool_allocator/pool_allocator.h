@@ -27,7 +27,6 @@
  * Changes:
  * 1. Added incomplete struct/class support (forward declaration)
  * 2. Changed block and slot tracking to use std::stack backed by std::vector
- * 3. Added unique_ptr its necessary helper functions
  */
 
 #include <algorithm>
@@ -93,7 +92,7 @@ class PoolAllocator
     pointer allocate(size_type n = 1);
     void deallocate(pointer p, size_type n = 1);
 
-    // Construct and destory functions
+    // Construct and destroy functions
     template <class U, class... Args>
     void construct(U* p, Args&&... args) noexcept;
     template <class U>
@@ -101,30 +100,6 @@ class PoolAllocator
 
     // Maximum size of the pool
     size_type max_size() const noexcept;
-
-    // Unique pointer support
-    // Deleter
-    struct Deleter
-    {
-        // Pool address so we know which pool to use for deletion
-        PoolAllocator* allocator = nullptr;
-        template <typename U>
-        void operator()(U* ptr) const noexcept;
-    };
-
-    // make unique
-    template <class... Args>
-    std::unique_ptr<T, Deleter> make_unique(Args&&... args);
-
-    // Create new object with empty constructor
-    pointer new_object();
-
-    // Create new object with arguments
-    template <class... Args>
-    pointer new_object(Args&&... args);
-
-    // Delete an object
-    void delete_object(pointer p);
 
   private:
     // Allocate a memory block
