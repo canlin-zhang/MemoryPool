@@ -7,7 +7,7 @@ struct PoolDeleter
     Allocator* allocator = nullptr;           // Pointer to the allocator
 
     // Deleter function
-    void operator()(typename Allocator::pointer ptr) const
+    void operator()(typename Allocator::pointer ptr) const noexcept
     {
         if (ptr)
         {

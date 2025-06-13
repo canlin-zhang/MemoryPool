@@ -27,7 +27,6 @@
  * Changes:
  * 1. Added incomplete struct/class support (forward declaration)
  * 2. Changed block and slot tracking to use std::stack backed by std::vector
- * 3. Added unique_ptr its necessary helper functions
  */
 
 #include <algorithm>
