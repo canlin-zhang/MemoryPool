@@ -1,20 +1,18 @@
 #pragma once
 
-template <typename T, size_t BlockSize>
-class PoolAllocator;
-
-// Custom deleter for unique_ptr use
-template <typename T, size_t BlockSize>
+template <typename Allocator>
 struct PoolDeleter
 {
-    PoolAllocator<T, BlockSize>* allocator = nullptr;
+    using T = typename Allocator::value_type; // Type of the value in the allocator
+    Allocator* allocator = nullptr;           // Pointer to the allocator
 
-    void operator()(T* ptr) const noexcept
+    // Deleter function
+    void operator()(typename Allocator::pointer ptr) const
     {
-        if (allocator)
+        if (ptr)
         {
-            ptr->~T();
-            allocator->deallocate(ptr, 1);
+            ptr->~T();                     // Call the destructor
+            allocator->deallocate(ptr, 1); // Deallocate memory
         }
     }
 };

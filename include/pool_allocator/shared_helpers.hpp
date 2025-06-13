@@ -3,9 +3,12 @@
 #include "pool_allocator.h"
 #include <memory>
 
-template <typename T, size_t BlockSize, typename... Args>
-std::shared_ptr<T> pool_make_shared(PoolAllocator<T, BlockSize>& allocator, Args&&... args)
+// Construct shared pointer with custom deleter using pool allocator
+template <typename Allocator, typename... Args>
+std::shared_ptr<typename Allocator::value_type> pool_make_shared(Allocator& allocator,
+                                                                 Args&&... args)
 {
+    using T = typename Allocator::value_type;
     T* ptr = allocator.allocate(1); // Allocate memory for one object
     // Exception safety handling
     try
@@ -18,14 +21,12 @@ std::shared_ptr<T> pool_make_shared(PoolAllocator<T, BlockSize>& allocator, Args
         throw;                        // Re-throw the exception
     }
 
-    auto deleter = [&allocator](T* ptr)
+    // Custom deleter for shared pointer
+    auto deleter = [allocator_ptr = &allocator](T* p)
     {
-        if (ptr)
-        {
-            ptr->~T();                    // Call the destructor
-            allocator.deallocate(ptr, 1); // Deallocate memory
-        }
+        p->~T();                         // Call the destructor
+        allocator_ptr->deallocate(p, 1); // Deallocate memory
     };
 
-    return std::shared_ptr<T>(ptr, deleter); // Return a shared_ptr with custom deleter
+    return std::shared_ptr<T>(ptr, deleter); // Return shared pointer with custom deleter
 }

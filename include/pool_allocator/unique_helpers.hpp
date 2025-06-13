@@ -5,10 +5,11 @@
 #include <memory>
 
 // Make unique function
-template <typename T, size_t BlockSize, typename... Args>
-std::unique_ptr<T, PoolDeleter<T, BlockSize>>
-pool_make_unique(PoolAllocator<T, BlockSize>& allocator, Args&&... args)
+template <typename Allocator, typename... Args>
+std::unique_ptr<typename Allocator::value_type, PoolDeleter<Allocator>>
+pool_make_unique(Allocator& allocator, Args&&... args)
 {
+    using T = typename Allocator::value_type;
     T* ptr = allocator.allocate(1); // Allocate memory for one object
     // Exception safety handling
     try
@@ -21,6 +22,5 @@ pool_make_unique(PoolAllocator<T, BlockSize>& allocator, Args&&... args)
         throw;                        // Re-throw the exception
     }
 
-    return std::unique_ptr<T, PoolDeleter<T, BlockSize>>(ptr,
-                                                         PoolDeleter<T, BlockSize>{&allocator});
+    return std::unique_ptr<T, PoolDeleter<Allocator>>(ptr, PoolDeleter<Allocator>{&allocator});
 }

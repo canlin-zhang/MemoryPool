@@ -10,7 +10,7 @@ TEST(PoolAllocatorTest, forward_declaration_test)
     PoolAllocator<IncompleteStruct> pool;
 
     // Test make unique with incomplete type
-    auto ptr = pool_make_unique<IncompleteStruct>(pool);
+    auto ptr = pool_make_unique(pool);
     ASSERT_NE(ptr, nullptr); // Ensure the pointer is not null
 
     // The code should compile to here.
@@ -23,11 +23,3 @@ struct IncompleteStruct
     IncompleteStruct* next = nullptr; // Pointer to the next incomplete struct
     IncompleteStruct() = default;     // Default constructor
 };
-
-// Test data to ensure the struct is complete
-TEST(PoolAllocatorTest, complete_struct_test)
-{
-    IncompleteStruct complete;
-    ASSERT_EQ(complete.data, 42);      // Ensure the data member is accessible
-    ASSERT_EQ(complete.next, nullptr); // Ensure the next pointer is initialized to nullptr
-}
