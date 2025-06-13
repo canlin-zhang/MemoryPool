@@ -2,6 +2,7 @@
 #include <map>
 #include <pool_allocator/general_helpers.hpp>
 #include <pool_allocator/pool_allocator.h>
+#include <pool_allocator/shared_helpers.hpp>
 #include <string>
 #include <vector>
 
@@ -64,4 +65,26 @@ TEST_F(PoolAllocatorTest, aligned_struct_allocation)
     EXPECT_EQ(alignedPtr->x, 'A');
     EXPECT_EQ(reinterpret_cast<uintptr_t>(alignedPtr) % alignof(AlignedStruct), 0);
     delete_object<AlignedStruct>(alignedPool, alignedPtr);
+}
+
+// Test shared pointer
+TEST_F(PoolAllocatorTest, shared_pointer_allocation)
+{
+    auto sharedPtr = pool_make_shared(stringPool, "This is a test for shared string.");
+    std::shared_ptr<std::string> anotherSharedPtr = sharedPtr;
+
+    // Test value
+    EXPECT_EQ(*sharedPtr, "This is a test for shared string.");
+
+    // Test reference counting
+    EXPECT_EQ(sharedPtr.use_count(), 2);
+    EXPECT_EQ(anotherSharedPtr.use_count(), 2);
+
+    // Test reset and reference counting
+    sharedPtr.reset();
+    EXPECT_EQ(sharedPtr.use_count(), 0);
+    EXPECT_EQ(anotherSharedPtr.use_count(), 1);
+
+    // Memory still valid after reset
+    EXPECT_EQ(*anotherSharedPtr, "This is a test for shared string.");
 }
