@@ -7,7 +7,6 @@ AllowShortIfStatementsOnASingleLine: false
 AllowShortFunctionsOnASingleLine: false
 AllowShortBlocksOnASingleLine: false
 BreakBeforeBraces: Allman
-BreakTemplateDeclarations: Yes
 SortIncludes: true
 IncludeBlocks: Preserve
 PointerAlignment: Left
@@ -17,4 +16,9 @@ SpacesInSquareBrackets: false
 SpacesInAngles: false
 SpaceInEmptyParentheses: false
 Cpp11BracedListStyle: true
+DerivePointerAlignment: false
+AlwaysBreakTemplateDeclarations: Yes
+AlwaysBreakAfterReturnType: TopLevel
+BreakConstructorInitializers: BeforeComma
+ReflowComments: true
 Standard: c++17

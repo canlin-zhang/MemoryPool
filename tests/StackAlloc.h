@@ -33,63 +33,69 @@
 template <typename T>
 struct StackNode_
 {
-  T data;
-  StackNode_ *prev;
+    T data;
+    StackNode_* prev;
 };
 
 template <class T, class Alloc = std::allocator<T>>
 class StackAlloc
 {
 
-public:
-  using Node = StackNode_<T>;
-  using allocator = typename std::allocator_traits<Alloc>::template rebind_alloc<Node>;
-  using allocator_traits = std::allocator_traits<allocator>;
+  public:
+    using Node = StackNode_<T>;
+    using allocator = typename std::allocator_traits<Alloc>::template rebind_alloc<Node>;
+    using allocator_traits = std::allocator_traits<allocator>;
 
-  StackAlloc() = default;
-  ~StackAlloc() { clear(); }
-
-  bool empty() const { return head_ == nullptr; }
-
-  void clear()
-  {
-    Node *curr = head_;
-    while (curr)
+    StackAlloc() = default;
+    ~StackAlloc()
     {
-      Node *tmp = curr->prev;
-      allocator_traits::destroy(allocator_, curr);
-      allocator_.deallocate(curr, 1);
-      curr = tmp;
+        clear();
     }
-    head_ = nullptr;
-  }
 
-  void push(T element)
-  {
-    Node *newNode = allocator_.allocate(1);
-    allocator_traits::construct(allocator_, newNode); // value-init
-    newNode->data = element;
-    newNode->prev = head_;
-    head_ = newNode;
-  }
+    bool empty() const
+    {
+        return head_ == nullptr;
+    }
 
-  T pop()
-  {
+    void clear()
+    {
+        Node* curr = head_;
+        while (curr)
+        {
+            Node* tmp = curr->prev;
+            allocator_traits::destroy(allocator_, curr);
+            allocator_.deallocate(curr, 1);
+            curr = tmp;
+        }
+        head_ = nullptr;
+    }
 
-    T result = head_->data;
-    Node *tmp = head_->prev;
-    allocator_traits::destroy(allocator_, head_);
-    allocator_.deallocate(head_, 1);
-    head_ = tmp;
-    return result;
-  }
+    void push(T element)
+    {
+        Node* newNode = allocator_.allocate(1);
+        allocator_traits::construct(allocator_, newNode); // value-init
+        newNode->data = element;
+        newNode->prev = head_;
+        head_ = newNode;
+    }
 
-  T top() const
-  {
-    return head_->data;
-  }
+    T pop()
+    {
 
-private:
-  allocator allocator_;
-  Node *head_ = nullptr;
+        T result = head_->data;
+        Node* tmp = head_->prev;
+        allocator_traits::destroy(allocator_, head_);
+        allocator_.deallocate(head_, 1);
+        head_ = tmp;
+        return result;
+    }
+
+    T top() const
+    {
+        return head_->data;
+    }
+
+  private:
+    allocator allocator_;
+    Node* head_ = nullptr;
 };

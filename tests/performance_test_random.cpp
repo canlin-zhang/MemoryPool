@@ -10,8 +10,9 @@
 #include <vector>
 
 template <typename Alloc>
-int64_t run_allocator_benchmark(const std::string& label, Alloc& allocator,
-                                std::vector<typename Alloc::pointer>& ptr_vec)
+int64_t
+run_allocator_benchmark(const std::string& label, Alloc& allocator,
+                        std::vector<typename Alloc::pointer>& ptr_vec)
 {
     using Traits = std::allocator_traits<Alloc>;
     using T = typename Traits::value_type;

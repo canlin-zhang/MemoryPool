@@ -81,7 +81,8 @@ PoolAllocator<T, BlockSize>::~PoolAllocator() noexcept
 
 // Move assignment operator
 template <typename T, size_t BlockSize>
-PoolAllocator<T, BlockSize>& PoolAllocator<T, BlockSize>::operator=(PoolAllocator&& other) noexcept
+PoolAllocator<T, BlockSize>&
+PoolAllocator<T, BlockSize>::operator=(PoolAllocator&& other) noexcept
 {
 
     // Move the memory blocks and free slots from the other allocator
@@ -111,7 +112,8 @@ PoolAllocator<T, BlockSize>::addressof(const_reference x) const noexcept
 }
 
 template <typename T, size_t BlockSize>
-void PoolAllocator<T, BlockSize>::allocateBlock()
+void
+PoolAllocator<T, BlockSize>::allocateBlock()
 {
     // Calculate item alignment
     constexpr size_type num_items = BlockSize / sizeof(T);
@@ -134,7 +136,8 @@ void PoolAllocator<T, BlockSize>::allocateBlock()
 
 // Allocate a single object
 template <typename T, size_t BlockSize>
-typename PoolAllocator<T, BlockSize>::pointer PoolAllocator<T, BlockSize>::allocate(size_type n)
+typename PoolAllocator<T, BlockSize>::pointer
+PoolAllocator<T, BlockSize>::allocate(size_type n)
 {
     // Do nothing if n is 0
     if (n == 0)
@@ -183,7 +186,8 @@ typename PoolAllocator<T, BlockSize>::pointer PoolAllocator<T, BlockSize>::alloc
 
 // Deallocate a single object
 template <typename T, size_t BlockSize>
-void PoolAllocator<T, BlockSize>::deallocate(pointer p, size_type n)
+void
+PoolAllocator<T, BlockSize>::deallocate(pointer p, size_type n)
 {
     // Do nothing if n is 0
     if (n == 0)
@@ -210,7 +214,8 @@ void PoolAllocator<T, BlockSize>::deallocate(pointer p, size_type n)
 // Construct an object in the allocated memory
 template <typename T, size_t BlockSize>
 template <class U, class... Args>
-void PoolAllocator<T, BlockSize>::construct(U* p, Args&&... args) noexcept
+void
+PoolAllocator<T, BlockSize>::construct(U* p, Args&&... args) noexcept
 {
     // Use placement new to construct the object in the allocated memory
     new (p) U(std::forward<Args>(args)...);
@@ -218,7 +223,8 @@ void PoolAllocator<T, BlockSize>::construct(U* p, Args&&... args) noexcept
 // Destroy an object in the allocated memory
 template <typename T, size_t BlockSize>
 template <class U>
-void PoolAllocator<T, BlockSize>::destroy(U* p) noexcept
+void
+PoolAllocator<T, BlockSize>::destroy(U* p) noexcept
 {
     // Call the destructor of the object
     p->~U();
@@ -237,7 +243,8 @@ PoolAllocator<T, BlockSize>::max_size() const noexcept
 // Deleter for unique_ptr
 template <typename T, size_t BlockSize>
 template <typename U>
-void PoolAllocator<T, BlockSize>::Deleter::operator()(U* ptr) const noexcept
+void
+PoolAllocator<T, BlockSize>::Deleter::operator()(U* ptr) const noexcept
 {
     static_assert(sizeof(U) > 0, "Deleter cannot be used with incomplete types");
     // Call delete_object on the allocator
@@ -267,7 +274,8 @@ PoolAllocator<T, BlockSize>::make_unique(Args&&... args)
 // Create a new object in the pool
 // Default constructor
 template <typename T, size_t BlockSize>
-typename PoolAllocator<T, BlockSize>::pointer PoolAllocator<T, BlockSize>::new_object()
+typename PoolAllocator<T, BlockSize>::pointer
+PoolAllocator<T, BlockSize>::new_object()
 {
     // Allocate a single object
     pointer p = allocate(1);
@@ -307,7 +315,8 @@ PoolAllocator<T, BlockSize>::new_object(Args&&... args)
 
 // Delete an object in the pool
 template <typename T, size_t BlockSize>
-void PoolAllocator<T, BlockSize>::delete_object(pointer p)
+void
+PoolAllocator<T, BlockSize>::delete_object(pointer p)
 {
     // Call the destructor of the object
     destroy(p);
