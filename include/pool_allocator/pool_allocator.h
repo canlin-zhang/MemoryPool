@@ -57,7 +57,8 @@ class PoolAllocator
     // We do not allow copy or move assignment for allocators
     using propagate_on_container_copy_assignment = std::false_type;
     using propagate_on_container_move_assignment = std::false_type;
-    // We allow allocator to be swapped if they have the same type and block size
+    // We allow allocator to be swapped if they have the same type and block
+    // size
     using propagate_on_container_swap = std::true_type;
     // Allocator matches by type and block size, not by type alone
     using is_always_equal = std::false_type;
@@ -95,9 +96,16 @@ class PoolAllocator
     pointer allocate(size_type n = 1);
     void deallocate(pointer p, size_type n = 1);
 
-    // Merging another pool into this one
-    // Other will be invalid after this operation
-    void merge(PoolAllocator&& other);
+    // Export a pool into a vector of pointers to the memory blocks
+    // Invalidate pool after export
+    std::vector<pointer> export_pool();
+
+    // Import a pool from a vector of pointers to the memory blocks
+    // Append to the current pool behind the current partially filled block
+    // Is it up to the user to ensure that the blocks are compatible
+    // with the current pool allocator
+    void import_pool(const std::vector<pointer>& blocks);
+    void import_pool(const PoolAllocator<T, BlockSize>&& other);
 
     // Construct and destory functions
     template <class U, class... Args>
@@ -132,6 +140,19 @@ class PoolAllocator
     // Delete an object
     void delete_object(pointer p);
 
+    // Return if the allocator is valid
+    inline bool is_valid() const
+    {
+        return valid;
+    }
+
+    // Return if the allocator has any usable slots (Either from free slots or
+    // from the current block)
+    bool has_free_slots();
+
+    // Return if there are any blocks allocated
+    bool has_blocks();
+
   private:
     // If the allocator is valid
     bool valid = true;
@@ -158,7 +179,8 @@ operator==(const PoolAllocator<T1, B1>&, const PoolAllocator<T2, B2>&) noexcept
 
 template <typename T1, size_t B1, typename T2, size_t B2>
 inline bool
-operator!=(const PoolAllocator<T1, B1>& a, const PoolAllocator<T2, B2>& b) noexcept
+operator!=(const PoolAllocator<T1, B1>& a,
+           const PoolAllocator<T2, B2>& b) noexcept
 {
     return !(a == b);
 }

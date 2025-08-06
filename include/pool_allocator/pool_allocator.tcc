@@ -38,14 +38,37 @@
 template <typename T, size_t BlockSize>
 PoolAllocator<T, BlockSize>::PoolAllocator() noexcept
 {
+    // Default constructor initializes an valid, empty allocator
     valid = true;
+    current_block_slot = 0; // No current block slot
 }
 
 // Destructor
 template <typename T, size_t BlockSize>
 PoolAllocator<T, BlockSize>::~PoolAllocator() noexcept
 {
+    // If the allocator is not valid, do nothing
+    // This is because we guarantee that an invalid allocator:
+    // 1. Cannot allocate or deallocate memory
+    // 2. Cannot construct or destroy objects
+    // 3. Cannot export or import memory blocks
+    // 4. Does not have any free slots or memory blocks
+    if (!valid)
+    {
+        return;
+    }
+
+    // Invalidate the allocator
     valid = false;
+
+    // Clear the free slots stack
+    while (!free_slots.empty())
+    {
+        free_slots.pop();
+    }
+
+    // Reset the current block slot
+    current_block_slot = 0;
 
     // Free all memory blocks
     for (pointer block : memory_blocks)
@@ -86,11 +109,11 @@ PoolAllocator<T, BlockSize>::allocateBlock()
     }
 
     // Allocate a new block of memory
-    pointer new_block =
-        reinterpret_cast<pointer>(::operator new(BlockSize, std::align_val_t(alignof(T))));
+    pointer new_block = reinterpret_cast<pointer>(
+        ::operator new(BlockSize, std::align_val_t(alignof(T))));
 
     // Push the new block to the free blocks stack
-    memory_blocks.push_back(new_block);
+    memory_blocks.emplace_back(new_block);
 
     // Reset block counter
     current_block_slot = 0;
@@ -178,34 +201,89 @@ PoolAllocator<T, BlockSize>::deallocate(pointer p, size_type n)
 }
 
 template <typename T, size_t BlockSize>
-inline void
-PoolAllocator<T, BlockSize>::merge(PoolAllocator&& other)
+inline std::vector<T*>
+PoolAllocator<T, BlockSize>::export_pool()
 {
     assert(valid && "Allocator is not valid");
-    assert(other.valid && "Other allocator is not valid");
 
-    // Best-effort merge of two pools
-    // We choose the one with least filled lastest block as the "current" pool
-    if (other.current_block_slot < this->current_block_slot)
+    // Invalidate the pool
+    valid = false;
+
+    // Pop everything off the free slots stack
+    while (!free_slots.empty())
     {
-        // Prepend other's blocks so their partially filled block becomes "current"
-        memory_blocks.insert(memory_blocks.begin(),
-                             std::make_move_iterator(other.memory_blocks.begin()),
-                             std::make_move_iterator(other.memory_blocks.end()));
-        current_block_slot = other.current_block_slot;
+        free_slots.pop();
     }
+    // Reset the current block slot
+    current_block_slot = 0;
+
+    // Return empty vector if no blocks are available
+    if (memory_blocks.empty())
+    {
+        return std::vector<pointer>();
+    }
+    // Return a vector of pointers to the memory blocks
     else
     {
-        // Append other's blocks — we keep our current block
-        memory_blocks.insert(memory_blocks.end(),
-                             std::make_move_iterator(other.memory_blocks.begin()),
-                             std::make_move_iterator(other.memory_blocks.end()));
-        // Our current_block_slot stays unchanged
+        std::vector<pointer> exported_blocks;
+        exported_blocks.reserve(memory_blocks.size());
+
+        // Move the blocks to the exported vector
+        for (pointer block : memory_blocks)
+        {
+            exported_blocks.emplace_back(block);
+        }
+
+        // Clear the memory blocks
+        memory_blocks.clear();
+
+        return exported_blocks;
+    }
+}
+
+template <typename T, size_t BlockSize>
+inline void
+PoolAllocator<T, BlockSize>::import_pool(const std::vector<pointer>& blocks)
+{
+    // An invalid allocator can import a pool (reviving from a previous export)
+    // But we have to assert it's completely empty beforehand
+    if (!valid)
+    {
+        assert(memory_blocks.empty() &&
+               "Invalid allocator still has memory blocks");
+        assert(free_slots.empty() && "Invalid allocator still has free slots");
+        assert(current_block_slot == 0 &&
+               "Invalid allocator still has a current block slot");
+        valid = true; // Mark the allocator as valid again
     }
 
-    other.memory_blocks.clear();
-    other.current_block_slot = 0;
-    other.valid = false; // Invalidate the other allocator
+    // Reset current block slot
+    current_block_slot = 0;
+
+    // Insert the blocks to the front of the memory blocks vector
+    for (pointer block : blocks)
+    {
+        assert(block != nullptr &&
+               "There are null pointers in the provided blocks");
+        // Push the block to the memory blocks vector
+        memory_blocks.emplace_back(block);
+    }
+}
+
+template <typename T, size_t BlockSize>
+inline void
+PoolAllocator<T, BlockSize>::import_pool(
+    const PoolAllocator<T, BlockSize>&& other)
+{
+    // An invalid allocator CAN import a pool (reviving from a previous export)
+    // But its emptiness check is done in the other import_pool function
+    // But we have to assert the other allocator is valid
+    assert(other.valid && "Other allocator is not valid");
+
+    // Export the blocks from the other allocator
+    std::vector<pointer> blocks = other.export_pool();
+    // Import the blocks into this allocator
+    import_pool(blocks);
 }
 
 // Construct an object in the allocated memory
@@ -219,6 +297,7 @@ PoolAllocator<T, BlockSize>::construct(U* p, Args&&... args) noexcept
     // Use placement new to construct the object in the allocated memory
     new (p) U(std::forward<Args>(args)...);
 }
+
 // Destroy an object in the allocated memory
 template <typename T, size_t BlockSize>
 template <class U>
@@ -236,8 +315,11 @@ template <typename T, size_t BlockSize>
 typename PoolAllocator<T, BlockSize>::size_type
 PoolAllocator<T, BlockSize>::max_size() const noexcept
 {
+    assert(valid && "Allocator is not valid");
+
     // Calculate the maximum number of objects that can be allocated in a block
-    return std::numeric_limits<PoolAllocator<T, BlockSize>::size_type>::max() / sizeof(T);
+    return std::numeric_limits<PoolAllocator<T, BlockSize>::size_type>::max() /
+           sizeof(T);
 }
 
 // Unique pointer support
@@ -247,7 +329,11 @@ template <typename U>
 void
 PoolAllocator<T, BlockSize>::Deleter::operator()(U* ptr) const noexcept
 {
-    static_assert(sizeof(U) > 0, "Deleter cannot be used with incomplete types");
+    // We don't need valid assertion since that's already checked by
+    // delete_object
+
+    static_assert(sizeof(U) > 0,
+                  "Deleter cannot be used with incomplete types");
     // Call delete_object on the allocator
     allocator->delete_object(ptr);
 }
@@ -303,6 +389,8 @@ template <class... Args>
 typename PoolAllocator<T, BlockSize>::pointer
 PoolAllocator<T, BlockSize>::new_object(Args&&... args)
 {
+    assert(valid && "Allocator is not valid");
+
     // Allocate a single object
     pointer p = allocate(1);
     try
@@ -323,8 +411,51 @@ template <typename T, size_t BlockSize>
 void
 PoolAllocator<T, BlockSize>::delete_object(pointer p)
 {
+    assert(valid && "Allocator is not valid");
+
     // Call the destructor of the object
     destroy(p);
     // Deallocate the object
     deallocate(p, 1);
+}
+
+template <typename T, size_t BlockSize>
+inline bool
+PoolAllocator<T, BlockSize>::has_free_slots()
+{
+    if (!valid)
+    {
+        assert(memory_blocks.empty());
+        return false; // Invalid allocators have no free slots
+    }
+    else
+    {
+        if (memory_blocks.empty())
+        {
+            return false; // No memory blocks, no free slots
+        }
+        else if (current_block_slot < BlockSize)
+        {
+            return true; // Current block has free slots
+        }
+        else
+        {
+            return !free_slots.empty(); // Check the free slots stack
+        }
+    }
+}
+
+template <typename T, size_t BlockSize>
+inline bool
+PoolAllocator<T, BlockSize>::has_blocks()
+{
+    if (!valid)
+    {
+        assert(memory_blocks.empty());
+        return false; // Invalid allocators have no blocks
+    }
+    else
+    {
+        return !memory_blocks.empty(); // Check if there are any memory blocks
+    }
 }

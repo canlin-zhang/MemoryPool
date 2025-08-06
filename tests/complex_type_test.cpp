@@ -5,7 +5,8 @@
 #include <vector>
 
 // Test complex types
-// Test fixture: Memory pool of std::string, std::vector<int>, and std::map<std::string, int>
+// Test fixture: Memory pool of std::string, std::vector<int>, and
+// std::map<std::string, int>
 class PoolAllocatorTest : public ::testing::Test
 {
   public:
@@ -44,7 +45,8 @@ TEST_F(PoolAllocatorTest, vector_allocation)
 // Single element allocation and deallocation for std::map<std::string, int>
 TEST_F(PoolAllocatorTest, map_allocation)
 {
-    auto mapPtr = mapPool.new_object(std::map<std::string, int>{{"one", 1}, {"two", 2}});
+    auto mapPtr =
+        mapPool.new_object(std::map<std::string, int>{{"one", 1}, {"two", 2}});
     EXPECT_EQ((*mapPtr)["one"], 1);
     EXPECT_EQ((*mapPtr)["two"], 2);
     mapPool.delete_object(mapPtr);
@@ -53,13 +55,16 @@ TEST_F(PoolAllocatorTest, map_allocation)
 // Test allocation of a struct with alignment requirements
 TEST_F(PoolAllocatorTest, aligned_struct_allocation)
 {
-    EXPECT_LE(sizeof(AlignedStruct),
-              alignof(AlignedStruct)); // Ensure size is less than or equal to alignment
+    EXPECT_LE(
+        sizeof(AlignedStruct),
+        alignof(
+            AlignedStruct)); // Ensure size is less than or equal to alignment
 
     auto alignedPtr = alignedPool.new_object();
     alignedPtr->x = 'A';
 
     EXPECT_EQ(alignedPtr->x, 'A');
-    EXPECT_EQ(reinterpret_cast<uintptr_t>(alignedPtr) % alignof(AlignedStruct), 0);
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(alignedPtr) % alignof(AlignedStruct),
+              0);
     alignedPool.delete_object(alignedPtr);
 }

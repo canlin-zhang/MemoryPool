@@ -43,7 +43,8 @@ class StackAlloc
 
   public:
     using Node = StackNode_<T>;
-    using allocator = typename std::allocator_traits<Alloc>::template rebind_alloc<Node>;
+    using allocator =
+        typename std::allocator_traits<Alloc>::template rebind_alloc<Node>;
     using allocator_traits = std::allocator_traits<allocator>;
 
     StackAlloc() = default;
