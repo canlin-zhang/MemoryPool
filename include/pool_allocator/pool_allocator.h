@@ -140,6 +140,7 @@ class PoolAllocator
     // Delete an object
     void delete_object(pointer p);
 
+    // State helper functions
     // Return if the allocator is valid
     inline bool is_valid() const
     {
@@ -153,12 +154,21 @@ class PoolAllocator
     // Return if there are any blocks allocated
     bool has_blocks();
 
+    // Return total size of memory allocated in the pool
+    size_type total_size();
+
   private:
     // If the allocator is valid
     bool valid = true;
 
     // Allocate a memory block
     void allocateBlock();
+
+    // Allocator assert valid
+    inline void assert_valid() const
+    {
+        assert(valid && "PoolAllocator is not valid");
+    }
 
     // Pointer to blocks of memory
     std::vector<pointer> memory_blocks;
@@ -170,6 +180,7 @@ class PoolAllocator
 
 // Operators
 // Operator != and ==
+// STL won't use this unless fallback because is_always_equal is false
 template <typename T1, size_t B1, typename T2, size_t B2>
 inline bool
 operator==(const PoolAllocator<T1, B1>&, const PoolAllocator<T2, B2>&) noexcept
@@ -177,10 +188,29 @@ operator==(const PoolAllocator<T1, B1>&, const PoolAllocator<T2, B2>&) noexcept
     return B1 == B2;
 }
 
+// Only references to the object are the same
+template <typename T, size_t BlockSize>
+inline bool
+operator==(const PoolAllocator<T, BlockSize>& a,
+           const PoolAllocator<T, BlockSize>& b) noexcept
+{
+    return &a == &b;
+}
+
+// STL won't use this unless fallback because is_always_equal is false
 template <typename T1, size_t B1, typename T2, size_t B2>
 inline bool
 operator!=(const PoolAllocator<T1, B1>& a,
            const PoolAllocator<T2, B2>& b) noexcept
+{
+    return !(a == b);
+}
+
+// Inverse of the operator== between the same type and block size
+template <typename T, size_t BlockSize>
+inline bool
+operator!=(const PoolAllocator<T, BlockSize>& a,
+           const PoolAllocator<T, BlockSize>& b) noexcept
 {
     return !(a == b);
 }

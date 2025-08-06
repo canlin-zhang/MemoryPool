@@ -82,7 +82,7 @@ template <typename T, size_t BlockSize>
 typename PoolAllocator<T, BlockSize>::pointer
 PoolAllocator<T, BlockSize>::addressof(reference x) const noexcept
 {
-    assert(valid && "Allocator is not valid");
+    assert_valid();
 
     return std::addressof(x);
 }
@@ -91,7 +91,7 @@ template <typename T, size_t BlockSize>
 typename PoolAllocator<T, BlockSize>::const_pointer
 PoolAllocator<T, BlockSize>::addressof(const_reference x) const noexcept
 {
-    assert(valid && "Allocator is not valid");
+    assert_valid();
 
     return std::addressof(x);
 }
@@ -124,7 +124,7 @@ template <typename T, size_t BlockSize>
 typename PoolAllocator<T, BlockSize>::pointer
 PoolAllocator<T, BlockSize>::allocate(size_type n)
 {
-    assert(valid && "Allocator is not valid");
+    assert_valid();
 
     // Do nothing if n is 0
     if (n == 0)
@@ -176,7 +176,7 @@ template <typename T, size_t BlockSize>
 void
 PoolAllocator<T, BlockSize>::deallocate(pointer p, size_type n)
 {
-    assert(valid && "Allocator is not valid");
+    assert_valid();
 
     // Do nothing if n is 0
     if (n == 0)
@@ -201,10 +201,10 @@ PoolAllocator<T, BlockSize>::deallocate(pointer p, size_type n)
 }
 
 template <typename T, size_t BlockSize>
-inline std::vector<T*>
+inline std::vector<typename PoolAllocator<T, BlockSize>::pointer>
 PoolAllocator<T, BlockSize>::export_pool()
 {
-    assert(valid && "Allocator is not valid");
+    assert_valid();
 
     // Invalidate the pool
     valid = false;
@@ -292,7 +292,7 @@ template <class U, class... Args>
 void
 PoolAllocator<T, BlockSize>::construct(U* p, Args&&... args) noexcept
 {
-    assert(valid && "Allocator is not valid");
+    assert_valid();
 
     // Use placement new to construct the object in the allocated memory
     new (p) U(std::forward<Args>(args)...);
@@ -304,7 +304,7 @@ template <class U>
 void
 PoolAllocator<T, BlockSize>::destroy(U* p) noexcept
 {
-    assert(valid && "Allocator is not valid");
+    assert_valid();
 
     // Call the destructor of the object
     p->~U();
@@ -315,9 +315,10 @@ template <typename T, size_t BlockSize>
 typename PoolAllocator<T, BlockSize>::size_type
 PoolAllocator<T, BlockSize>::max_size() const noexcept
 {
-    assert(valid && "Allocator is not valid");
+    assert_valid();
 
-    // Calculate the maximum number of objects that can be allocated in a block
+    // Calculate the maximum number of objects that can be allocated in a
+    // block
     return std::numeric_limits<PoolAllocator<T, BlockSize>::size_type>::max() /
            sizeof(T);
 }
@@ -344,7 +345,7 @@ template <class... Args>
 inline std::unique_ptr<T, typename PoolAllocator<T, BlockSize>::Deleter>
 PoolAllocator<T, BlockSize>::make_unique(Args&&... args)
 {
-    assert(valid && "Allocator is not valid");
+    assert_valid();
 
     pointer raw = allocate(1);
     try
@@ -366,7 +367,7 @@ template <typename T, size_t BlockSize>
 typename PoolAllocator<T, BlockSize>::pointer
 PoolAllocator<T, BlockSize>::new_object()
 {
-    assert(valid && "Allocator is not valid");
+    assert_valid();
 
     // Allocate a single object
     pointer p = allocate(1);
@@ -389,7 +390,7 @@ template <class... Args>
 typename PoolAllocator<T, BlockSize>::pointer
 PoolAllocator<T, BlockSize>::new_object(Args&&... args)
 {
-    assert(valid && "Allocator is not valid");
+    assert_valid();
 
     // Allocate a single object
     pointer p = allocate(1);
@@ -411,7 +412,7 @@ template <typename T, size_t BlockSize>
 void
 PoolAllocator<T, BlockSize>::delete_object(pointer p)
 {
-    assert(valid && "Allocator is not valid");
+    assert_valid();
 
     // Call the destructor of the object
     destroy(p);
@@ -457,5 +458,20 @@ PoolAllocator<T, BlockSize>::has_blocks()
     else
     {
         return !memory_blocks.empty(); // Check if there are any memory blocks
+    }
+}
+
+template <typename T, size_t BlockSize>
+inline typename PoolAllocator<T, BlockSize>::size_type
+PoolAllocator<T, BlockSize>::total_size()
+{
+    if (!valid)
+    {
+        assert(memory_blocks.empty());
+        return 0; // Invalid allocators have no total size
+    }
+    else
+    {
+        return memory_blocks.size() * BlockSize;
     }
 }
