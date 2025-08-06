@@ -54,36 +54,38 @@ class PoolAllocator
     using const_reference = const T&;
     using size_type = std::size_t;
     using difference_type = std::ptrdiff_t;
+    // We do not allow copy or move assignment for allocators
     using propagate_on_container_copy_assignment = std::false_type;
-    using propagate_on_container_move_assignment = std::true_type;
+    using propagate_on_container_move_assignment = std::false_type;
+    // We allow allocator to be swapped if they have the same type and block size
     using propagate_on_container_swap = std::true_type;
-    using is_always_equal = std::true_type;
+    // Allocator matches by type and block size, not by type alone
+    using is_always_equal = std::false_type;
 
-    /* Legacy Rebind struct */
-    template <typename U>
-    struct rebind
-    {
-        typedef PoolAllocator<U, BlockSize> other;
-    };
+    // Rebind struct deleted for safety
+    // /* Legacy Rebind struct */
+    // template <typename U>
+    // struct rebind
+    // {
+    //     typedef PoolAllocator<U, BlockSize> other;
+    // };
 
     /* Member functions */
     // Default constructor
     PoolAllocator() noexcept;
-    // Copy constructor
-    PoolAllocator(const PoolAllocator& other) noexcept;
-    // Move constructor
-    PoolAllocator(PoolAllocator&& other) noexcept;
-    // Templated copy
+    // We do not allow copy constructor for allocators
+    PoolAllocator(const PoolAllocator& other) = delete;
+    // We do not allow templated copy constructor for allocators
     template <class U>
-    PoolAllocator(const PoolAllocator<U, BlockSize>& other) noexcept;
+    PoolAllocator(const PoolAllocator<U, BlockSize>& other) = delete;
     // Destructor
     ~PoolAllocator() noexcept;
 
     // Assignment operator
     // We do not allow copy assignment for allocators
     PoolAllocator& operator=(const PoolAllocator& other) = delete;
-    // Move assignment operator
-    PoolAllocator& operator=(PoolAllocator&& other) noexcept;
+    // We do not allow move assignment for allocators
+    PoolAllocator& operator=(PoolAllocator&& other) = delete;
 
     // Address functions
     pointer addressof(reference x) const noexcept;
@@ -92,6 +94,10 @@ class PoolAllocator
     // Allocation and deallocation
     pointer allocate(size_type n = 1);
     void deallocate(pointer p, size_type n = 1);
+
+    // Merging another pool into this one
+    // Other will be invalid after this operation
+    void merge(PoolAllocator&& other);
 
     // Construct and destory functions
     template <class U, class... Args>
@@ -127,6 +133,9 @@ class PoolAllocator
     void delete_object(pointer p);
 
   private:
+    // If the allocator is valid
+    bool valid = true;
+
     // Allocate a memory block
     void allocateBlock();
 

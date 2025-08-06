@@ -38,40 +38,15 @@
 template <typename T, size_t BlockSize>
 PoolAllocator<T, BlockSize>::PoolAllocator() noexcept
 {
-}
-
-// Copy constructor
-template <typename T, size_t BlockSize>
-PoolAllocator<T, BlockSize>::PoolAllocator(const PoolAllocator& other) noexcept
-{
-    // Nothing should be done here
-}
-
-// Move constructor
-template <typename T, size_t BlockSize>
-PoolAllocator<T, BlockSize>::PoolAllocator(PoolAllocator&& other) noexcept
-{
-    // Move the memory blocks and free slots from the other allocator
-    memory_blocks = std::move(other.memory_blocks);
-    free_slots = std::move(other.free_slots);
-    current_block_slot = other.current_block_slot;
-
-    // Clear other allocator's states
-    other.current_block_slot = 0;
-}
-
-// Templated copy
-template <typename T, size_t BlockSize>
-template <class U>
-PoolAllocator<T, BlockSize>::PoolAllocator(const PoolAllocator<U, BlockSize>& other) noexcept
-{
-    // Nothing should be done here
+    valid = true;
 }
 
 // Destructor
 template <typename T, size_t BlockSize>
 PoolAllocator<T, BlockSize>::~PoolAllocator() noexcept
 {
+    valid = false;
+
     // Free all memory blocks
     for (pointer block : memory_blocks)
     {
@@ -79,28 +54,13 @@ PoolAllocator<T, BlockSize>::~PoolAllocator() noexcept
     }
 }
 
-// Move assignment operator
-template <typename T, size_t BlockSize>
-PoolAllocator<T, BlockSize>&
-PoolAllocator<T, BlockSize>::operator=(PoolAllocator&& other) noexcept
-{
-
-    // Move the memory blocks and free slots from the other allocator
-    memory_blocks = std::move(other.memory_blocks);
-    free_slots = std::move(other.free_slots);
-    current_block_slot = other.current_block_slot;
-
-    // Clear other allocator's states
-    other.current_block_slot = 0;
-
-    return *this;
-}
-
 // Address functions
 template <typename T, size_t BlockSize>
 typename PoolAllocator<T, BlockSize>::pointer
 PoolAllocator<T, BlockSize>::addressof(reference x) const noexcept
 {
+    assert(valid && "Allocator is not valid");
+
     return std::addressof(x);
 }
 
@@ -108,6 +68,8 @@ template <typename T, size_t BlockSize>
 typename PoolAllocator<T, BlockSize>::const_pointer
 PoolAllocator<T, BlockSize>::addressof(const_reference x) const noexcept
 {
+    assert(valid && "Allocator is not valid");
+
     return std::addressof(x);
 }
 
@@ -139,6 +101,8 @@ template <typename T, size_t BlockSize>
 typename PoolAllocator<T, BlockSize>::pointer
 PoolAllocator<T, BlockSize>::allocate(size_type n)
 {
+    assert(valid && "Allocator is not valid");
+
     // Do nothing if n is 0
     if (n == 0)
     {
@@ -189,6 +153,8 @@ template <typename T, size_t BlockSize>
 void
 PoolAllocator<T, BlockSize>::deallocate(pointer p, size_type n)
 {
+    assert(valid && "Allocator is not valid");
+
     // Do nothing if n is 0
     if (n == 0)
     {
@@ -211,12 +177,45 @@ PoolAllocator<T, BlockSize>::deallocate(pointer p, size_type n)
     }
 }
 
+template <typename T, size_t BlockSize>
+inline void
+PoolAllocator<T, BlockSize>::merge(PoolAllocator&& other)
+{
+    assert(valid && "Allocator is not valid");
+    assert(other.valid && "Other allocator is not valid");
+
+    // Best-effort merge of two pools
+    // We choose the one with least filled lastest block as the "current" pool
+    if (other.current_block_slot < this->current_block_slot)
+    {
+        // Prepend other's blocks so their partially filled block becomes "current"
+        memory_blocks.insert(memory_blocks.begin(),
+                             std::make_move_iterator(other.memory_blocks.begin()),
+                             std::make_move_iterator(other.memory_blocks.end()));
+        current_block_slot = other.current_block_slot;
+    }
+    else
+    {
+        // Append other's blocks — we keep our current block
+        memory_blocks.insert(memory_blocks.end(),
+                             std::make_move_iterator(other.memory_blocks.begin()),
+                             std::make_move_iterator(other.memory_blocks.end()));
+        // Our current_block_slot stays unchanged
+    }
+
+    other.memory_blocks.clear();
+    other.current_block_slot = 0;
+    other.valid = false; // Invalidate the other allocator
+}
+
 // Construct an object in the allocated memory
 template <typename T, size_t BlockSize>
 template <class U, class... Args>
 void
 PoolAllocator<T, BlockSize>::construct(U* p, Args&&... args) noexcept
 {
+    assert(valid && "Allocator is not valid");
+
     // Use placement new to construct the object in the allocated memory
     new (p) U(std::forward<Args>(args)...);
 }
@@ -226,6 +225,8 @@ template <class U>
 void
 PoolAllocator<T, BlockSize>::destroy(U* p) noexcept
 {
+    assert(valid && "Allocator is not valid");
+
     // Call the destructor of the object
     p->~U();
 }
@@ -257,6 +258,8 @@ template <class... Args>
 inline std::unique_ptr<T, typename PoolAllocator<T, BlockSize>::Deleter>
 PoolAllocator<T, BlockSize>::make_unique(Args&&... args)
 {
+    assert(valid && "Allocator is not valid");
+
     pointer raw = allocate(1);
     try
     {
@@ -277,6 +280,8 @@ template <typename T, size_t BlockSize>
 typename PoolAllocator<T, BlockSize>::pointer
 PoolAllocator<T, BlockSize>::new_object()
 {
+    assert(valid && "Allocator is not valid");
+
     // Allocate a single object
     pointer p = allocate(1);
     try
