@@ -96,7 +96,7 @@ PoolAllocator<T, BlockSize>::export_all()
     // Move memory blocks to the exported struct
     exported.memory_blocks = std::move(memory_blocks);
     // Clear the memory blocks (don't free them)
-    memory_blocks.clear();
+    memory_blocks = std::vector<pointer>();
 
     // Move the current block slot to the exported struct
     exported.current_block_slot = current_block_slot;
