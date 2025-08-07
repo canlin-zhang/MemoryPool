@@ -40,34 +40,6 @@ PoolAllocator<T, BlockSize>::PoolAllocator() noexcept
 {
 }
 
-// Copy constructor
-template <typename T, size_t BlockSize>
-PoolAllocator<T, BlockSize>::PoolAllocator(const PoolAllocator& other) noexcept
-{
-    // Nothing should be done here
-}
-
-// Move constructor
-template <typename T, size_t BlockSize>
-PoolAllocator<T, BlockSize>::PoolAllocator(PoolAllocator&& other) noexcept
-{
-    // Move the memory blocks and free slots from the other allocator
-    memory_blocks = std::move(other.memory_blocks);
-    free_slots = std::move(other.free_slots);
-    current_block_slot = other.current_block_slot;
-
-    // Clear other allocator's states
-    other.current_block_slot = 0;
-}
-
-// Templated copy
-template <typename T, size_t BlockSize>
-template <class U>
-PoolAllocator<T, BlockSize>::PoolAllocator(const PoolAllocator<U, BlockSize>& other) noexcept
-{
-    // Nothing should be done here
-}
-
 // Destructor
 template <typename T, size_t BlockSize>
 PoolAllocator<T, BlockSize>::~PoolAllocator() noexcept
@@ -77,23 +49,6 @@ PoolAllocator<T, BlockSize>::~PoolAllocator() noexcept
     {
         ::operator delete(block, std::align_val_t(alignof(T)));
     }
-}
-
-// Move assignment operator
-template <typename T, size_t BlockSize>
-PoolAllocator<T, BlockSize>&
-PoolAllocator<T, BlockSize>::operator=(PoolAllocator&& other) noexcept
-{
-
-    // Move the memory blocks and free slots from the other allocator
-    memory_blocks = std::move(other.memory_blocks);
-    free_slots = std::move(other.free_slots);
-    current_block_slot = other.current_block_slot;
-
-    // Clear other allocator's states
-    other.current_block_slot = 0;
-
-    return *this;
 }
 
 // Address functions
@@ -109,6 +64,122 @@ typename PoolAllocator<T, BlockSize>::const_pointer
 PoolAllocator<T, BlockSize>::addressof(const_reference x) const noexcept
 {
     return std::addressof(x);
+}
+
+template <typename T, size_t BlockSize>
+inline ExportedAlloc<T, BlockSize>
+PoolAllocator<T, BlockSize>::export_free()
+{
+    ExportedAlloc<T, BlockSize> exported;
+    exported.free_slots = std::move(free_slots);
+    // Clear the free slots stack
+    while (!free_slots.empty())
+    {
+        free_slots.pop();
+    }
+
+    // No memory blocks to export
+    exported.memory_blocks = std::nullopt;
+    // No current block slot to export
+    exported.current_block_slot = std::nullopt;
+
+    return exported;
+}
+
+template <typename T, size_t BlockSize>
+ExportedAlloc<T, BlockSize>
+PoolAllocator<T, BlockSize>::export_all()
+{
+    ExportedAlloc<T, BlockSize> exported;
+    // Move the free slots to the exported struct
+    exported.free_slots = std::move(free_slots);
+    // Clear the free slots stack
+    while (!free_slots.empty())
+    {
+        free_slots.pop();
+    }
+
+    // Move memory blocks to the exported struct
+    exported.memory_blocks = std::move(memory_blocks);
+    // Clear the memory blocks (don't free them)
+    memory_blocks.clear();
+
+    // Move the current block slot to the exported struct
+    exported.current_block_slot = current_block_slot;
+    // Reset the current block slot in the allocator
+    current_block_slot = 0;
+
+    return exported;
+}
+
+template <typename T, size_t BlockSize>
+void
+PoolAllocator<T, BlockSize>::import_free(const ExportedAlloc<T, BlockSize>& exported)
+{
+    // Append the free slots from the exported allocator
+    for (const auto& slot : exported.free_slots)
+    {
+        free_slots.push(slot);
+    }
+}
+
+template <typename T, size_t BlockSize>
+void
+PoolAllocator<T, BlockSize>::import_free(PoolAllocator<T, BlockSize>& from)
+{
+    // Export and Import the free slots
+    auto exported = from.export_free();
+    import_free(exported);
+}
+
+template <typename T, size_t BlockSize>
+void
+PoolAllocator<T, BlockSize>::import_all(const ExportedAlloc<T, BlockSize>& exported)
+{
+    // Sanity check
+    assert(exported.memory_blocks.has_value() && exported.current_block_slot.has_value());
+
+    // Import free slots
+    import_free(exported);
+
+    // Compare the bump allocator counter
+    // If the current has more free slots (smaller counter), we append the new memory blocks at the
+    // back.
+    if (!memory_blocks.empty())
+    {
+        if (exported.current_block_slot.value() < current_block_slot)
+        {
+            // Append the memory blocks at the back of the current memory blocks
+            memory_blocks.insert(memory_blocks.end(), exported.memory_blocks->begin(),
+                                 exported.memory_blocks->end());
+            // Update the current block slot
+            current_block_slot = exported.current_block_slot.value();
+        }
+        else
+        {
+            // Prepend the memory blocks at the front of the current memory blocks
+            memory_blocks.insert(memory_blocks.begin(), exported.memory_blocks->begin(),
+                                 exported.memory_blocks->end());
+            // We keep the current block slot as is
+        }
+    }
+    else
+    {
+        // If the current memory blocks are empty, we just move the memory blocks from the exported
+        // allocator
+        memory_blocks.insert(memory_blocks.end(), exported.memory_blocks->begin(),
+                             exported.memory_blocks->end());
+        current_block_slot = exported.current_block_slot.value();
+    }
+}
+
+template <typename T, size_t BlockSize>
+void
+PoolAllocator<T, BlockSize>::import_all(PoolAllocator<T, BlockSize>& from)
+{
+    // Export and Import the free slots
+    auto exported = from.export_all();
+    import_all(exported);
 }
 
 template <typename T, size_t BlockSize>

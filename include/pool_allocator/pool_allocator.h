@@ -37,8 +37,24 @@
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <stack>
 #include <vector>
+
+template <typename T, size_t BlockSize>
+struct ExportedAlloc
+{
+    using pointer = T*;
+    using size_type = std::size_t;
+
+    // Free slots in the block
+    std::vector<pointer> free_slots;
+
+    // Memory blocks - Optional, only used in export_all and import_all
+    std::optional<std::vector<pointer>> memory_blocks;
+    // Bump allocation counter - Optional, only used in export_all and import_all
+    std::optional<size_type> current_block_slot;
+};
 
 template <typename T, size_t BlockSize = 4096>
 class PoolAllocator
@@ -55,35 +71,35 @@ class PoolAllocator
     using size_type = std::size_t;
     using difference_type = std::ptrdiff_t;
     using propagate_on_container_copy_assignment = std::false_type;
-    using propagate_on_container_move_assignment = std::true_type;
+    using propagate_on_container_move_assignment = std::false_type;
     using propagate_on_container_swap = std::true_type;
-    using is_always_equal = std::true_type;
+    using is_always_equal = std::false_type;
 
-    /* Legacy Rebind struct */
-    template <typename U>
-    struct rebind
-    {
-        typedef PoolAllocator<U, BlockSize> other;
-    };
+    // /* Legacy Rebind struct */
+    // template <typename U>
+    // struct rebind
+    // {
+    //     typedef PoolAllocator<U, BlockSize> other;
+    // };
 
     /* Member functions */
     // Default constructor
     PoolAllocator() noexcept;
-    // Copy constructor
-    PoolAllocator(const PoolAllocator& other) noexcept;
-    // Move constructor
-    PoolAllocator(PoolAllocator&& other) noexcept;
-    // Templated copy
+    // No Copy constructor
+    PoolAllocator(const PoolAllocator& other) = delete;
+    // No Move constructor
+    PoolAllocator(PoolAllocator&& other) = delete;
+    // No Templated copy
     template <class U>
-    PoolAllocator(const PoolAllocator<U, BlockSize>& other) noexcept;
+    PoolAllocator(const PoolAllocator<U, BlockSize>& other) = delete;
     // Destructor
     ~PoolAllocator() noexcept;
 
     // Assignment operator
     // We do not allow copy assignment for allocators
     PoolAllocator& operator=(const PoolAllocator& other) = delete;
-    // Move assignment operator
-    PoolAllocator& operator=(PoolAllocator&& other) noexcept;
+    // We do not allow move assignment for allocators
+    PoolAllocator& operator=(PoolAllocator&& other) = delete;
 
     // Address functions
     pointer addressof(reference x) const noexcept;
@@ -126,6 +142,37 @@ class PoolAllocator
     // Delete an object
     void delete_object(pointer p);
 
+    // Debug helper functions
+    // Get total allocated size
+    inline size_type total_allocated_size() const noexcept
+    {
+        return memory_blocks.size() * BlockSize;
+    }
+
+    // Get total number of free slots
+    // Does not account for partial blocks
+    inline size_type total_free_slots() const noexcept
+    {
+        return free_slots.size();
+    }
+
+    // Allocator import/export functions
+    // Export
+    //! Export only the available slots as a vector of pointers
+    ExportedAlloc<T, BlockSize> export_free();
+
+    //! Export all the memory blocks + available slots
+    ExportedAlloc<T, BlockSize> export_all();
+
+    // Import
+    //! Import free slots from an ExportedAlloc
+    void import_free(const ExportedAlloc<T, BlockSize>& exported);
+    void import_free(PoolAllocator<T, BlockSize>& from);
+
+    //! Import all memory blocks and free slots from an ExportedAlloc
+    void import_all(const ExportedAlloc<T, BlockSize>& exported);
+    void import_all(PoolAllocator<T, BlockSize>& from);
+
   private:
     // Allocate a memory block
     void allocateBlock();
@@ -147,9 +194,24 @@ operator==(const PoolAllocator<T1, B1>&, const PoolAllocator<T2, B2>&) noexcept
     return B1 == B2;
 }
 
+// Only two references to the same allocator are equal
+template <typename T, size_t BlockSize>
+inline bool
+operator==(const PoolAllocator<T, BlockSize>& a, const PoolAllocator<T, BlockSize>& b) noexcept
+{
+    return &a == &b;
+}
+
 template <typename T1, size_t B1, typename T2, size_t B2>
 inline bool
 operator!=(const PoolAllocator<T1, B1>& a, const PoolAllocator<T2, B2>& b) noexcept
+{
+    return !(a == b);
+}
+
+template <typename T, size_t BlockSize>
+inline bool
+operator!=(const PoolAllocator<T, BlockSize>& a, const PoolAllocator<T, BlockSize>& b) noexcept
 {
     return !(a == b);
 }
