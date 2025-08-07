@@ -2,6 +2,9 @@
 #include <pool_allocator/pool_allocator.h>
 #include <tests/test_structs.h>
 
+#include <atomic>
+#include <mutex>
+#include <random>
 #include <thread>
 #include <vector>
 
@@ -159,7 +162,8 @@ TEST(PoolAllocatorTest, mutual_export)
                 Alloc allocator;
                 allocator.import_pool(thread_blocks[tid]);
 
-                // Use a thread-local, seeded random number generator for reproducibility
+                // Use a thread-local, seeded random number generator for
+                // reproducibility
                 std::mt19937 rng(42 + tid); // Seed with fixed value + thread id
                 std::uniform_int_distribution<int> dist(0, 15);
                 int num_objects = dist(rng);
