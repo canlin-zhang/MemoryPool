@@ -159,7 +159,10 @@ TEST(PoolAllocatorTest, mutual_export)
                 Alloc allocator;
                 allocator.import_pool(thread_blocks[tid]);
 
-                int num_objects = rand() % 16;
+                // Use a thread-local, seeded random number generator for reproducibility
+                std::mt19937 rng(42 + tid); // Seed with fixed value + thread id
+                std::uniform_int_distribution<int> dist(0, 15);
+                int num_objects = dist(rng);
                 for (int i = 0; i < num_objects; ++i)
                 {
                     auto p = allocator.new_object();
