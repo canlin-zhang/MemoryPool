@@ -121,6 +121,8 @@ template <typename T, size_t BlockSize>
 void
 PoolAllocator<T, BlockSize>::import_free(PoolAllocator<T, BlockSize>& from)
 {
+    assert(&from != this && "Cannot import directly from self");
+
     // Export and Import the free slots
     auto exported = from.export_free();
     import_free(exported);
@@ -171,6 +173,8 @@ template <typename T, size_t BlockSize>
 void
 PoolAllocator<T, BlockSize>::import_all(PoolAllocator<T, BlockSize>& from)
 {
+    assert(&from != this && "Cannot import directly from self");
+
     // Export and Import the free slots
     auto exported = from.export_all();
     import_all(exported);
