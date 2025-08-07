@@ -51,7 +51,7 @@ struct ExportedAlloc
     std::stack<pointer, std::vector<pointer>> free_slots;
 
     // Memory blocks - Optional, only used in export_all and import_all
-    std::optional<pointer> memory_blocks;
+    std::optional<std::vector<pointer>> memory_blocks;
     // Bump allocation counter - Optional, only used in export_all and import_all
     std::optional<size_type> current_block_slot;
 };
