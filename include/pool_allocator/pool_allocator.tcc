@@ -73,10 +73,7 @@ PoolAllocator<T, BlockSize>::export_free()
     ExportedAlloc<T, BlockSize> exported;
     exported.free_slots = std::move(free_slots);
     // Clear the free slots stack
-    while (!free_slots.empty())
-    {
-        free_slots.pop();
-    }
+    free_slots = std::stack<pointer, std::vector<pointer>>();
 
     // No memory blocks to export
     exported.memory_blocks = std::nullopt;
@@ -94,10 +91,7 @@ PoolAllocator<T, BlockSize>::export_all()
     // Move the free slots to the exported struct
     exported.free_slots = std::move(free_slots);
     // Clear the free slots stack
-    while (!free_slots.empty())
-    {
-        free_slots.pop();
-    }
+    free_slots = std::stack<pointer, std::vector<pointer>>();
 
     // Move memory blocks to the exported struct
     exported.memory_blocks = std::move(memory_blocks);

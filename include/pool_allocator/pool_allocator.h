@@ -158,7 +158,10 @@ class PoolAllocator
 
     // Allocator import/export functions
     // Export
-    //! Export only the available slots as a vector of pointers
+    //! Export only the available slots as a vector of pointers.
+    //! Warning: This does NOT transfer ownership of the underlying memory blocks.
+    //! Do NOT use this function in threads with shorter lifetimes than other threads
+    //! accessing objects backed by this allocator. Doing so may lead to use-after-free.
     ExportedAlloc<T, BlockSize> export_free();
 
     //! Export all the memory blocks + available slots
