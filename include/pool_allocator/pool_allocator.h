@@ -105,7 +105,7 @@ class PoolAllocator
     // Is it up to the user to ensure that the blocks are compatible
     // with the current pool allocator
     void import_pool(const std::vector<pointer>& blocks);
-    void import_pool(const PoolAllocator<T, BlockSize>&& other);
+    void import_pool(const PoolAllocator<T, BlockSize>& other);
 
     // Construct and destory functions
     template <class U, class... Args>

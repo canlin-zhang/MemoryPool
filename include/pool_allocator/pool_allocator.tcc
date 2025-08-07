@@ -273,7 +273,7 @@ PoolAllocator<T, BlockSize>::import_pool(const std::vector<pointer>& blocks)
 template <typename T, size_t BlockSize>
 inline void
 PoolAllocator<T, BlockSize>::import_pool(
-    const PoolAllocator<T, BlockSize>&& other)
+    const PoolAllocator<T, BlockSize>& other)
 {
     // An invalid allocator CAN import a pool (reviving from a previous export)
     // But its emptiness check is done in the other import_pool function
