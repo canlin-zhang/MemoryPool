@@ -2,19 +2,8 @@
 #include <gtest/gtest.h>
 #include <memory>
 #include <pool_allocator/pool_allocator.h>
+#include <tests/test_structs.h>
 #include <vector>
-
-// Define the complex struct
-struct alignas(64) ComplexStruct
-{
-    char x = 'X';
-    std::vector<int> vec = {1, 2, 3, 4, 5};
-    struct alignas(16) InnerStruct
-    {
-        int a = 42;
-        double b = 3.14;
-    } inner;
-};
 
 constexpr size_t kBlockSize = 4096;
 using Alloc = PoolAllocator<ComplexStruct, kBlockSize>;

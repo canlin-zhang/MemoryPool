@@ -2,6 +2,7 @@
 #include <map>
 #include <pool_allocator/pool_allocator.h>
 #include <string>
+#include <tests/test_structs.h>
 #include <vector>
 
 // Test complex types
@@ -9,23 +10,6 @@
 // std::map<std::string, int>
 class PoolAllocatorTest : public ::testing::Test
 {
-  public:
-    struct alignas(64) ComplexStruct
-    {
-        // Char
-        char x = 'X';
-
-        // Vector
-        std::vector<int> vec = {1, 2, 3, 4, 5};
-
-        // Another struct with smaller alignment
-        struct alignas(16) InnerStruct
-        {
-            int a = 42;
-            double b = 3.14;
-        } inner;
-    };
-
   protected:
     PoolAllocator<std::string> stringPool;
     PoolAllocator<std::vector<int>> vectorPool;
