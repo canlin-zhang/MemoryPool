@@ -10,16 +10,27 @@
 class PoolAllocatorTest : public ::testing::Test
 {
   public:
-    struct alignas(64) AlignedStruct
+    struct alignas(64) ComplexStruct
     {
-        char x;
+        // Char
+        char x = 'X';
+
+        // Vector
+        std::vector<int> vec = {1, 2, 3, 4, 5};
+
+        // Another struct with smaller alignment
+        struct alignas(16) InnerStruct
+        {
+            int a = 42;
+            double b = 3.14;
+        } inner;
     };
 
   protected:
     PoolAllocator<std::string> stringPool;
     PoolAllocator<std::vector<int>> vectorPool;
     PoolAllocator<std::map<std::string, int>> mapPool;
-    PoolAllocator<AlignedStruct> alignedPool;
+    PoolAllocator<ComplexStruct> alignedPool;
 };
 
 // Single element allocation and deallocation for std::string
@@ -56,15 +67,15 @@ TEST_F(PoolAllocatorTest, map_allocation)
 TEST_F(PoolAllocatorTest, aligned_struct_allocation)
 {
     EXPECT_LE(
-        sizeof(AlignedStruct),
+        sizeof(ComplexStruct),
         alignof(
-            AlignedStruct)); // Ensure size is less than or equal to alignment
+            ComplexStruct)); // Ensure size is less than or equal to alignment
 
     auto alignedPtr = alignedPool.new_object();
     alignedPtr->x = 'A';
 
     EXPECT_EQ(alignedPtr->x, 'A');
-    EXPECT_EQ(reinterpret_cast<uintptr_t>(alignedPtr) % alignof(AlignedStruct),
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(alignedPtr) % alignof(ComplexStruct),
               0);
     alignedPool.delete_object(alignedPtr);
 }
