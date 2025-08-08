@@ -37,7 +37,6 @@
 #include <cstdlib>
 #include <iostream>
 #include <memory>
-#include <optional>
 #include <stack>
 #include <vector>
 
@@ -51,9 +50,9 @@ struct ExportedAlloc
     std::stack<pointer, std::vector<pointer>> free_slots;
 
     // Memory blocks - Optional, only used in export_all and import_all
-    std::optional<std::vector<pointer>> memory_blocks;
+    std::vector<pointer> memory_blocks;
     // Bump allocation counter - Optional, only used in export_all and import_all
-    std::optional<size_type> current_block_slot;
+    size_type current_block_slot;
 };
 
 template <typename T, size_t BlockSize = 4096>
@@ -169,11 +168,11 @@ class PoolAllocator
 
     // Import
     //! Import free slots from an ExportedAlloc
-    void import_free(const ExportedAlloc<T, BlockSize>& exported);
+    void import_free(ExportedAlloc<T, BlockSize>& exported);
     void import_free(PoolAllocator<T, BlockSize>& from);
 
     //! Import all memory blocks and free slots from an ExportedAlloc
-    void import_all(const ExportedAlloc<T, BlockSize>& exported);
+    void import_all(ExportedAlloc<T, BlockSize>& exported);
     void import_all(PoolAllocator<T, BlockSize>& from);
 
   private:
@@ -186,6 +185,10 @@ class PoolAllocator
 
     // Free list
     std::stack<pointer, std::vector<pointer>> free_slots;
+
+    // Number of items in one block (will be set by the constructor only)
+    size_type num_items;
+    size_type item_size;
 };
 
 // Operators
