@@ -51,8 +51,6 @@ struct ExportedAlloc
 
     // Memory blocks - Optional, only used in export_all and import_all
     std::vector<pointer> memory_blocks;
-    // Bump allocation counter - Optional, only used in export_all and import_all
-    size_type current_block_slot;
 };
 
 template <typename T, size_t BlockSize = 4096>

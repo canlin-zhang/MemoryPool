@@ -93,6 +93,17 @@ ExportedAlloc<T, BlockSize>
 PoolAllocator<T, BlockSize>::export_all()
 {
     ExportedAlloc<T, BlockSize> exported;
+    // Before moving the free slots, unwind the partially free bump-allocation block
+    // Add its free slots to the exported free slots
+    if (!memory_blocks.empty() && current_block_slot < num_items)
+    {
+        // Convert the partially free (bump allocated) blocks to free slots
+        for (size_type i = current_block_slot; i < num_items; ++i)
+        {
+            // Push the pointer to the free slots stack
+            exported.free_slots.push(memory_blocks.back() + i);
+        }
+    }
     // Move the free slots to the exported struct
     exported.free_slots = std::move(free_slots);
     // Clear the free slots stack
@@ -103,8 +114,6 @@ PoolAllocator<T, BlockSize>::export_all()
     // Clear the memory blocks (don't free them)
     memory_blocks = std::vector<pointer>();
 
-    // Move the current block slot to the exported struct
-    exported.current_block_slot = current_block_slot;
     // Reset the current block slot in the allocator
     current_block_slot = 0;
 
@@ -116,8 +125,7 @@ void
 PoolAllocator<T, BlockSize>::import_free(ExportedAlloc<T, BlockSize>& exported)
 {
     // Append the free slots from the exported allocator efficiently
-    free_slots.c.insert(free_slots.c.end(),
-                        std::make_move_iterator(exported.free_slots.c.begin()),
+    free_slots.c.insert(free_slots.c.end(), std::make_move_iterator(exported.free_slots.c.begin()),
                         std::make_move_iterator(exported.free_slots.c.end()));
 
     // Clear the imported free slots to avoid potential reuse
@@ -142,32 +150,16 @@ PoolAllocator<T, BlockSize>::import_all(ExportedAlloc<T, BlockSize>& exported)
     // Import free slots
     import_free(exported);
 
-    // Compare the bump allocator counter
-    // If the current has more free slots (smaller counter), we append the new memory blocks at the
-    // back.
-    if (!exported.memory_blocks.empty())
-    {
-        // Convert the partially free (bump allocated) blocks from the imported allocator to free
-        // slots
-        for (size_type i = exported.current_block_slot; i < this->num_items; ++i)
-        {
-            // Push the pointer to the free slots stack
-            free_slots.push(exported.memory_blocks.back() + i);
-        }
-
-        // Always append the new memory blocks at the front so we don't change the back blocks
-        memory_blocks.insert(memory_blocks.begin(), exported.memory_blocks.begin(),
-                             exported.memory_blocks.end());
-    }
-
     // We don't need to change the current_block_slot here
-    // As the imported allocator's partially free slots are already accounted for
+    // As the imported allocator's partially free slots are already accounted for during export
 
-    // Clean up the imported structure to avoid potential reuse
+    // Append imported memory blocks from the exported allocator
+    memory_blocks.insert(memory_blocks.end(),
+                         std::make_move_iterator(exported.memory_blocks.begin()),
+                         std::make_move_iterator(exported.memory_blocks.end()));
+
     // Clear the imported memory blocks
     exported.memory_blocks = std::vector<pointer>();
-    // Reset the imported current block slot
-    exported.current_block_slot = 0;
 }
 
 template <typename T, size_t BlockSize>
