@@ -38,34 +38,11 @@
 template <typename T, size_t BlockSize>
 PoolAllocator<T, BlockSize>::PoolAllocator() noexcept
 {
-}
-
-// Copy constructor
-template <typename T, size_t BlockSize>
-PoolAllocator<T, BlockSize>::PoolAllocator(const PoolAllocator& other) noexcept
-{
-    // Nothing should be done here
-}
-
-// Move constructor
-template <typename T, size_t BlockSize>
-PoolAllocator<T, BlockSize>::PoolAllocator(PoolAllocator&& other) noexcept
-{
-    // Move the memory blocks and free slots from the other allocator
-    memory_blocks = std::move(other.memory_blocks);
-    free_slots = std::move(other.free_slots);
-    current_block_slot = other.current_block_slot;
-
-    // Clear other allocator's states
-    other.current_block_slot = 0;
-}
-
-// Templated copy
-template <typename T, size_t BlockSize>
-template <class U>
-PoolAllocator<T, BlockSize>::PoolAllocator(const PoolAllocator<U, BlockSize>& other) noexcept
-{
-    // Nothing should be done here
+    // Calculate item alignment
+    constexpr size_type items_per_block = BlockSize / sizeof(T);
+    static_assert(items_per_block > 0, "Block size is too small for the type T");
+    this->num_items = items_per_block;
+    this->item_size = sizeof(T);
 }
 
 // Destructor
@@ -77,23 +54,6 @@ PoolAllocator<T, BlockSize>::~PoolAllocator() noexcept
     {
         ::operator delete(block, std::align_val_t(alignof(T)));
     }
-}
-
-// Move assignment operator
-template <typename T, size_t BlockSize>
-PoolAllocator<T, BlockSize>&
-PoolAllocator<T, BlockSize>::operator=(PoolAllocator&& other) noexcept
-{
-
-    // Move the memory blocks and free slots from the other allocator
-    memory_blocks = std::move(other.memory_blocks);
-    free_slots = std::move(other.free_slots);
-    current_block_slot = other.current_block_slot;
-
-    // Clear other allocator's states
-    other.current_block_slot = 0;
-
-    return *this;
 }
 
 // Address functions
@@ -112,17 +72,98 @@ PoolAllocator<T, BlockSize>::addressof(const_reference x) const noexcept
 }
 
 template <typename T, size_t BlockSize>
+inline ExportedAlloc<T, BlockSize>
+PoolAllocator<T, BlockSize>::_export_free()
+{
+    ExportedAlloc<T, BlockSize> exported;
+    exported.free_slots = std::move(free_slots);
+    // Clear the free slots stack
+    free_slots = std::stack<pointer, std::vector<pointer>>();
+
+    // No memory blocks to export
+    exported.memory_blocks = std::vector<pointer>();
+
+    return exported;
+}
+
+template <typename T, size_t BlockSize>
+ExportedAlloc<T, BlockSize>
+PoolAllocator<T, BlockSize>::_export_all()
+{
+    ExportedAlloc<T, BlockSize> exported;
+    // Before moving the free slots, unwind the partially free bump-allocation block
+    // Add its free slots to the exported free slots
+    if (!memory_blocks.empty() && current_block_slot < num_items)
+    {
+        // Convert the partially free (bump allocated) blocks to free slots
+        for (size_type i = current_block_slot; i < num_items; ++i)
+        {
+            // Push the pointer to the free slots stack
+            exported.free_slots.push(memory_blocks.back() + i);
+        }
+    }
+    // Append existing free slots to the unwinded free slots
+    exported.free_slots.c.insert(exported.free_slots.c.end(), free_slots.c.begin(),
+                                 free_slots.c.end());
+    // Clear the free slots stack
+    free_slots = std::stack<pointer, std::vector<pointer>>();
+
+    // Move memory blocks to the exported struct
+    exported.memory_blocks = std::move(memory_blocks);
+    // Clear the memory blocks (don't free them)
+    memory_blocks = std::vector<pointer>();
+
+    // Reset the current block slot in the allocator
+    current_block_slot = 0;
+
+    return exported;
+}
+
+template <typename T, size_t BlockSize>
+void
+PoolAllocator<T, BlockSize>::_import(ExportedAlloc<T, BlockSize>& exported)
+{
+    // Append the free slots from the exported allocator
+    free_slots.c.insert(free_slots.c.end(), exported.free_slots.begin(), exported.free_slots.end());
+
+    // We don't need to change the current_block_slot here
+    // As the imported allocator's partially free slots are already accounted for during export
+
+    // Append imported memory blocks from the exported allocator
+    memory_blocks.insert(memory_blocks.end(),
+                         std::make_move_iterator(exported.memory_blocks.begin()),
+                         std::make_move_iterator(exported.memory_blocks.end()));
+
+    // Clear the imported memory blocks
+    exported.memory_blocks = std::vector<pointer>();
+}
+
+template <typename T, size_t BlockSize>
+void
+PoolAllocator<T, BlockSize>::transfer_all(PoolAllocator<T, BlockSize>& from)
+{
+    assert(&from != this && "Cannot import directly from self");
+
+    // Export and Import the free slots
+    auto exported = from._export_all();
+    _import(exported);
+}
+
+template <typename T, size_t BlockSize>
+void
+PoolAllocator<T, BlockSize>::transfer_free(PoolAllocator<T, BlockSize>& from)
+{
+    assert(&from != this && "Cannot import directly from self");
+
+    // Export and Import the free slots
+    auto exported = from._export_free();
+    _import(exported);
+}
+
+template <typename T, size_t BlockSize>
 void
 PoolAllocator<T, BlockSize>::allocateBlock()
 {
-    // Calculate item alignment
-    constexpr size_type num_items = BlockSize / sizeof(T);
-
-    if (num_items < 1)
-    {
-        throw std::bad_alloc();
-    }
-
     // Allocate a new block of memory
     pointer new_block =
         reinterpret_cast<pointer>(::operator new(BlockSize, std::align_val_t(alignof(T))));
@@ -152,7 +193,7 @@ PoolAllocator<T, BlockSize>::allocate(size_type n)
     // Handle single object allocation
     else
     {
-        constexpr size_type num_items = BlockSize / sizeof(T);
+        constexpr size_type items_per_block = BlockSize / sizeof(T);
 
         // Check free slots first
         if (!free_slots.empty())
@@ -163,7 +204,7 @@ PoolAllocator<T, BlockSize>::allocate(size_type n)
             return p;
         }
         // Check current block slot
-        else if (!memory_blocks.empty() && current_block_slot < num_items)
+        else if (!memory_blocks.empty() && current_block_slot < items_per_block)
         {
             // Increment by 1
             pointer p = memory_blocks.back() + current_block_slot;
