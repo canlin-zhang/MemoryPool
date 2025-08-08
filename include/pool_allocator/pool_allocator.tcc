@@ -115,11 +115,10 @@ template <typename T, size_t BlockSize>
 void
 PoolAllocator<T, BlockSize>::import_free(ExportedAlloc<T, BlockSize>& exported)
 {
-    // Append the free slots from the exported allocator
-    for (const auto& slot : exported.free_slots)
-    {
-        free_slots.push(slot);
-    }
+    // Append the free slots from the exported allocator efficiently
+    free_slots.c.insert(free_slots.c.end(),
+                        std::make_move_iterator(exported.free_slots.c.begin()),
+                        std::make_move_iterator(exported.free_slots.c.end()));
 
     // Clear the imported free slots to avoid potential reuse
     exported.free_slots = std::stack<pointer, std::vector<pointer>>();
