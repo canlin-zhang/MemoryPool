@@ -73,7 +73,7 @@ PoolAllocator<T, BlockSize>::addressof(const_reference x) const noexcept
 
 template <typename T, size_t BlockSize>
 inline ExportedAlloc<T, BlockSize>
-PoolAllocator<T, BlockSize>::export_free()
+PoolAllocator<T, BlockSize>::_export_free()
 {
     ExportedAlloc<T, BlockSize> exported;
     exported.free_slots = std::move(free_slots);
@@ -82,15 +82,13 @@ PoolAllocator<T, BlockSize>::export_free()
 
     // No memory blocks to export
     exported.memory_blocks = std::vector<pointer>();
-    // No current block slot to export
-    exported.current_block_slot = 0;
 
     return exported;
 }
 
 template <typename T, size_t BlockSize>
 ExportedAlloc<T, BlockSize>
-PoolAllocator<T, BlockSize>::export_all()
+PoolAllocator<T, BlockSize>::_export_all()
 {
     ExportedAlloc<T, BlockSize> exported;
     // Before moving the free slots, unwind the partially free bump-allocation block
@@ -104,8 +102,10 @@ PoolAllocator<T, BlockSize>::export_all()
             exported.free_slots.push(memory_blocks.back() + i);
         }
     }
-    // Move the free slots to the exported struct
-    exported.free_slots = std::move(free_slots);
+    // Append existing free slots to the unwinded free slots
+    exported.free_slots.c.insert(exported.free_slots.c.end(),
+                                 std::make_move_iterator(free_slots.c.begin()),
+                                 std::make_move_iterator(free_slots.c.end()));
     // Clear the free slots stack
     free_slots = std::stack<pointer, std::vector<pointer>>();
 
@@ -122,33 +122,11 @@ PoolAllocator<T, BlockSize>::export_all()
 
 template <typename T, size_t BlockSize>
 void
-PoolAllocator<T, BlockSize>::import_free(ExportedAlloc<T, BlockSize>& exported)
+PoolAllocator<T, BlockSize>::_import(ExportedAlloc<T, BlockSize>& exported)
 {
-    // Append the free slots from the exported allocator efficiently
-    free_slots.c.insert(free_slots.c.end(), std::make_move_iterator(exported.free_slots.c.begin()),
-                        std::make_move_iterator(exported.free_slots.c.end()));
-
-    // Clear the imported free slots to avoid potential reuse
-    exported.free_slots = std::stack<pointer, std::vector<pointer>>();
-}
-
-template <typename T, size_t BlockSize>
-void
-PoolAllocator<T, BlockSize>::import_free(PoolAllocator<T, BlockSize>& from)
-{
-    assert(&from != this && "Cannot import directly from self");
-
-    // Export and Import the free slots
-    auto exported = from.export_free();
-    import_free(exported);
-}
-
-template <typename T, size_t BlockSize>
-void
-PoolAllocator<T, BlockSize>::import_all(ExportedAlloc<T, BlockSize>& exported)
-{
-    // Import free slots
-    import_free(exported);
+    // Append the free slots from the exported allocator
+    free_slots.c.insert(free_slots.c.end(), std::make_move_iterator(exported.free_slots.begin()),
+                        std::make_move_iterator(exported.free_slots.end()));
 
     // We don't need to change the current_block_slot here
     // As the imported allocator's partially free slots are already accounted for during export
@@ -164,13 +142,13 @@ PoolAllocator<T, BlockSize>::import_all(ExportedAlloc<T, BlockSize>& exported)
 
 template <typename T, size_t BlockSize>
 void
-PoolAllocator<T, BlockSize>::import_all(PoolAllocator<T, BlockSize>& from)
+PoolAllocator<T, BlockSize>::_import(PoolAllocator<T, BlockSize>& from)
 {
     assert(&from != this && "Cannot import directly from self");
 
     // Export and Import the free slots
-    auto exported = from.export_all();
-    import_all(exported);
+    auto exported = from._export_all();
+    _import(exported);
 }
 
 template <typename T, size_t BlockSize>

@@ -49,7 +49,7 @@ struct ExportedAlloc
     // Free slots in the block
     std::stack<pointer, std::vector<pointer>> free_slots;
 
-    // Memory blocks - Optional, only used in export_all and import_all
+    // Memory blocks - Optional, only used in _export_all and _import
     std::vector<pointer> memory_blocks;
 };
 
@@ -159,19 +159,15 @@ class PoolAllocator
     //! Warning: This does NOT transfer ownership of the underlying memory blocks.
     //! Do NOT use this function in threads with shorter lifetimes than other threads
     //! accessing objects backed by this allocator. Doing so may lead to use-after-free.
-    ExportedAlloc<T, BlockSize> export_free();
+    ExportedAlloc<T, BlockSize> _export_free();
 
     //! Export all the memory blocks + available slots
-    ExportedAlloc<T, BlockSize> export_all();
+    ExportedAlloc<T, BlockSize> _export_all();
 
     // Import
-    //! Import free slots from an ExportedAlloc
-    void import_free(ExportedAlloc<T, BlockSize>& exported);
-    void import_free(PoolAllocator<T, BlockSize>& from);
-
     //! Import all memory blocks and free slots from an ExportedAlloc
-    void import_all(ExportedAlloc<T, BlockSize>& exported);
-    void import_all(PoolAllocator<T, BlockSize>& from);
+    void _import(ExportedAlloc<T, BlockSize>& exported);
+    void _import(PoolAllocator<T, BlockSize>& from);
 
   private:
     // Allocate a memory block
