@@ -153,6 +153,15 @@ class PoolAllocator
         return free_slots.size();
     }
 
+    // Transfer free slots from another allocator
+    void transfer_free(PoolAllocator<T, BlockSize>& from);
+    // Transfer all memory blocks and free slots from another allocator
+    void transfer_all(PoolAllocator<T, BlockSize>& from);
+
+  private:
+    // Allocate a memory block
+    void allocateBlock();
+
     // Allocator import/export functions
     // Export
     //! Export only the available slots as a vector of pointers.
@@ -167,11 +176,6 @@ class PoolAllocator
     // Import
     //! Import all memory blocks and free slots from an ExportedAlloc
     void _import(ExportedAlloc<T, BlockSize>& exported);
-    void _import(PoolAllocator<T, BlockSize>& from);
-
-  private:
-    // Allocate a memory block
-    void allocateBlock();
 
     // Pointer to blocks of memory
     std::vector<pointer> memory_blocks;
