@@ -152,7 +152,7 @@ PoolAllocator<T, BlockSize>::import_all(ExportedAlloc<T, BlockSize>& exported)
         for (size_type i = exported.current_block_slot; i < this->num_items; ++i)
         {
             // Push the pointer to the free slots stack
-            free_slots.push(exported.memory_blocks.back() + i * this->item_size);
+            free_slots.push(exported.memory_blocks.back() + i);
         }
 
         // Always append the new memory blocks at the front so we don't change the back blocks
