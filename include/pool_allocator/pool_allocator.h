@@ -190,27 +190,12 @@ class PoolAllocator
 };
 
 // Operators
-// Operator != and ==
-template <typename T1, size_t B1, typename T2, size_t B2>
-inline bool
-operator==(const PoolAllocator<T1, B1>&, const PoolAllocator<T2, B2>&) noexcept
-{
-    return B1 == B2;
-}
-
 // Only two references to the same allocator are equal
 template <typename T, size_t BlockSize>
 inline bool
 operator==(const PoolAllocator<T, BlockSize>& a, const PoolAllocator<T, BlockSize>& b) noexcept
 {
     return &a == &b;
-}
-
-template <typename T1, size_t B1, typename T2, size_t B2>
-inline bool
-operator!=(const PoolAllocator<T1, B1>& a, const PoolAllocator<T2, B2>& b) noexcept
-{
-    return !(a == b);
 }
 
 template <typename T, size_t BlockSize>
