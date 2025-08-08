@@ -103,9 +103,8 @@ PoolAllocator<T, BlockSize>::_export_all()
         }
     }
     // Append existing free slots to the unwinded free slots
-    exported.free_slots.c.insert(exported.free_slots.c.end(),
-                                 std::make_move_iterator(free_slots.c.begin()),
-                                 std::make_move_iterator(free_slots.c.end()));
+    exported.free_slots.c.insert(exported.free_slots.c.end(), free_slots.c.begin(),
+                                 free_slots.c.end());
     // Clear the free slots stack
     free_slots = std::stack<pointer, std::vector<pointer>>();
 
@@ -125,8 +124,7 @@ void
 PoolAllocator<T, BlockSize>::_import(ExportedAlloc<T, BlockSize>& exported)
 {
     // Append the free slots from the exported allocator
-    free_slots.c.insert(free_slots.c.end(), std::make_move_iterator(exported.free_slots.begin()),
-                        std::make_move_iterator(exported.free_slots.end()));
+    free_slots.c.insert(free_slots.c.end(), exported.free_slots.begin(), exported.free_slots.end());
 
     // We don't need to change the current_block_slot here
     // As the imported allocator's partially free slots are already accounted for during export
