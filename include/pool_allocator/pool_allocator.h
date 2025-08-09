@@ -40,19 +40,6 @@
 #include <stack>
 #include <vector>
 
-template <typename T, size_t BlockSize>
-struct ExportedAlloc
-{
-    using pointer = T*;
-    using size_type = std::size_t;
-
-    // Free slots in the block
-    std::stack<pointer, std::vector<pointer>> free_slots;
-
-    // Memory blocks - Optional, only used in _export_all and _import
-    std::vector<pointer> memory_blocks;
-};
-
 template <typename T, size_t BlockSize = 4096>
 class PoolAllocator
 {
@@ -159,8 +146,25 @@ class PoolAllocator
     void transfer_all(PoolAllocator<T, BlockSize>& from);
 
   private:
+    //! A pointer to the beginning (or end) of a block
+    using block_pointer = T*;
+    //! Given a block pointer, return a "end" pointer for that block
+    block_pointer cur_block_end() const
+    {
+        return memory_blocks.back() + BlockSize / sizeof(T);
+    }
+
     // Allocate a memory block
     void allocateBlock();
+
+    struct ExportedAlloc
+    {
+        // Free slots in the block
+        std::stack<pointer, std::vector<pointer>> free_slots;
+
+        // Memory blocks - Optional, only used in _export_all and _import
+        std::vector<block_pointer> memory_blocks;
+    };
 
     // Allocator import/export functions
     // Export
@@ -168,25 +172,21 @@ class PoolAllocator
     //! Warning: This does NOT transfer ownership of the underlying memory blocks.
     //! Do NOT use this function in threads with shorter lifetimes than other threads
     //! accessing objects backed by this allocator. Doing so may lead to use-after-free.
-    ExportedAlloc<T, BlockSize> _export_free();
+    ExportedAlloc _export_free();
 
     //! Export all the memory blocks + available slots
-    ExportedAlloc<T, BlockSize> _export_all();
+    ExportedAlloc _export_all();
 
     // Import
     //! Import all memory blocks and free slots from an ExportedAlloc
-    void _import(ExportedAlloc<T, BlockSize>& exported);
+    void _import(ExportedAlloc exported);
 
     // Pointer to blocks of memory
-    std::vector<pointer> memory_blocks;
-    size_type current_block_slot = 0; // Current slot in the current block
+    std::vector<block_pointer> memory_blocks;
+    pointer current_block_slot = 0; // Current slot in the current block
 
     // Free list
     std::stack<pointer, std::vector<pointer>> free_slots;
-
-    // Number of items in one block (will be set by the constructor only)
-    size_type num_items;
-    size_type item_size;
 };
 
 // Operators
