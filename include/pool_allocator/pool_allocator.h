@@ -59,13 +59,6 @@ class PoolAllocator
     using propagate_on_container_swap = std::true_type;
     using is_always_equal = std::false_type;
 
-    // /* Legacy Rebind struct */
-    // template <typename U>
-    // struct rebind
-    // {
-    //     typedef PoolAllocator<U, BlockSize> other;
-    // };
-
     /* Member functions */
     // Default constructor
     PoolAllocator() noexcept;
@@ -85,17 +78,13 @@ class PoolAllocator
     // We do not allow move assignment for allocators
     PoolAllocator& operator=(PoolAllocator&& other) = delete;
 
-    // Address functions
-    pointer addressof(reference x) const noexcept;
-    const_pointer addressof(const_reference x) const noexcept;
-
     // Allocation and deallocation
     pointer allocate(size_type n = 1);
-    void deallocate(pointer p, size_type n = 1);
+    void deallocate(pointer p, size_type n = 1) noexcept;
 
     // Construct and destory functions
     template <class U, class... Args>
-    void construct(U* p, Args&&... args) noexcept;
+    void construct(U* p, Args&&... args);
     template <class U>
     void destroy(U* p) noexcept;
 
@@ -107,6 +96,8 @@ class PoolAllocator
     struct Deleter
     {
         // Pool address so we know which pool to use for deletion
+        // If a global memory pool is used, user can implement a deleter that doesn't increase size
+        // of unique_ptr
         PoolAllocator* allocator = nullptr;
         template <typename U>
         void operator()(U* ptr) const noexcept;
@@ -117,14 +108,14 @@ class PoolAllocator
     std::unique_ptr<T, Deleter> make_unique(Args&&... args);
 
     // Create new object with empty constructor
-    pointer new_object();
+    [[nodiscard]] pointer new_object();
 
     // Create new object with arguments
     template <class... Args>
-    pointer new_object(Args&&... args);
+    [[nodiscard]] pointer new_object(Args&&... args);
 
     // Delete an object
-    void delete_object(pointer p);
+    void delete_object(pointer p) noexcept;
 
     // Debug helper functions
     // Get total allocated size
@@ -186,7 +177,7 @@ class PoolAllocator
     pointer current_block_slot = 0; // Current slot in the current block
 
     // Free list
-    std::stack<pointer, std::vector<pointer>> free_slots;
+    std::vector<pointer> free_slots;
 };
 
 // Operators

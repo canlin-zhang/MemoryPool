@@ -33,6 +33,7 @@
 #include "pool_allocator.h"
 
 #include <limits>
+#include <new> // for std::align_val_t
 
 // Default constructor
 template <typename T, size_t BlockSize>
@@ -53,20 +54,6 @@ PoolAllocator<T, BlockSize>::~PoolAllocator() noexcept
     }
 }
 
-// Address functions
-template <typename T, size_t BlockSize>
-typename PoolAllocator<T, BlockSize>::pointer
-PoolAllocator<T, BlockSize>::addressof(reference x) const noexcept
-{
-    return std::addressof(x);
-}
-
-template <typename T, size_t BlockSize>
-typename PoolAllocator<T, BlockSize>::const_pointer
-PoolAllocator<T, BlockSize>::addressof(const_reference x) const noexcept
-{
-    return std::addressof(x);
-}
 
 template <typename T, size_t BlockSize>
 typename PoolAllocator<T, BlockSize>::ExportedAlloc
@@ -174,8 +161,8 @@ PoolAllocator<T, BlockSize>::allocate(size_type n)
         if (!free_slots.empty())
         {
             // Pop the top slot from the free slots stack
-            pointer p = free_slots.top();
-            free_slots.pop();
+            pointer p = free_slots.back();
+            free_slots.pop_back();
             return p;
         }
         if (memory_blocks.empty() || current_block_slot >= this->cur_block_end())
@@ -189,7 +176,7 @@ PoolAllocator<T, BlockSize>::allocate(size_type n)
 // Deallocate a single object
 template <typename T, size_t BlockSize>
 void
-PoolAllocator<T, BlockSize>::deallocate(pointer p, size_type n)
+PoolAllocator<T, BlockSize>::deallocate(pointer p, size_type n) noexcept
 {
     // Do nothing if n is 0
     if (n == 0)
@@ -206,7 +193,7 @@ PoolAllocator<T, BlockSize>::deallocate(pointer p, size_type n)
         // Push pointer back to free slots stack
         if (p != nullptr)
         {
-            free_slots.push(p);
+            free_slots.push_back(p);
         }
     }
 }
@@ -215,7 +202,7 @@ PoolAllocator<T, BlockSize>::deallocate(pointer p, size_type n)
 template <typename T, size_t BlockSize>
 template <class U, class... Args>
 void
-PoolAllocator<T, BlockSize>::construct(U* p, Args&&... args) noexcept
+PoolAllocator<T, BlockSize>::construct(U* p, Args&&... args)
 {
     // Use placement new to construct the object in the allocated memory
     new (p) U(std::forward<Args>(args)...);
@@ -316,7 +303,7 @@ PoolAllocator<T, BlockSize>::new_object(Args&&... args)
 // Delete an object in the pool
 template <typename T, size_t BlockSize>
 void
-PoolAllocator<T, BlockSize>::delete_object(pointer p)
+PoolAllocator<T, BlockSize>::delete_object(pointer p) noexcept
 {
     // Call the destructor of the object
     destroy(p);
