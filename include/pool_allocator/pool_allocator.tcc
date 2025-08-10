@@ -69,22 +69,11 @@ typename PoolAllocator<T, BlockSize>::ExportedAlloc
 PoolAllocator<T, BlockSize>::export_all()
 {
     ExportedAlloc exported = this->export_free();
-    // Before moving the free slots, unwind the partially free bump-allocation block
-    // Add its free slots to the exported free slots
-    if (this->current_block_slot)
-    {
-        const pointer end = cur_block_end();
-        exported.free_slots.reserve(end - this->current_block_slot);
-        // Convert the partially free (bump allocated) blocks to free slots
-        while (this->current_block_slot < end)
-            exported.free_slots.push_back(this->current_block_slot++);
-    }
+    // Export any remaining un-split slots from the current block
+    this->bump.export_remaining(exported.free_slots);
 
     // Move memory blocks to the exported struct
     std::swap(exported.memory_blocks, this->memory_blocks);
-
-    // Reset the current block slot in the allocator
-    this->current_block_slot = nullptr;
 
     return exported;
 }
@@ -95,19 +84,9 @@ PoolAllocator<T, BlockSize>::import(ExportedAlloc exported)
 {
     // Append the free slots from the exported allocator
     free_slots.insert(free_slots.end(), exported.free_slots.begin(), exported.free_slots.end());
-
-    const int prior_last_block_idx = memory_blocks.size() - 1;
     // Append imported memory blocks from the exported allocator
     memory_blocks.insert(memory_blocks.end(), exported.memory_blocks.begin(),
                          exported.memory_blocks.end());
-
-    if (prior_last_block_idx >= 0)
-        std::swap(memory_blocks.back(), memory_blocks[prior_last_block_idx]);
-
-    // note: ok to leave current_block_slot as is
-    // if it's currently null, we need to allocate a new block in order to use it
-    // and if it's not null, we've restored the last memory block to what it was before so that the
-    // range [current_block_slot, this->cur_block_end()) is still what's waiting to be allocated.
 }
 
 template <typename T, size_t BlockSize>
@@ -140,9 +119,9 @@ PoolAllocator<T, BlockSize>::allocate_block()
 
     // Push the new block to the free blocks stack
     memory_blocks.push_back(new_block);
-
-    // Reset block counter
-    current_block_slot = new_block;
+    // Initialize bump state for lazy splitting of this block
+    constexpr size_type items_per_block = BlockSize / sizeof(T);
+    bump.init(new_block, items_per_block);
 }
 
 // Allocate a single object
@@ -163,8 +142,6 @@ PoolAllocator<T, BlockSize>::allocate(size_type n)
     // Handle single object allocation
     else
     {
-        constexpr size_type items_per_block = BlockSize / sizeof(T);
-
         // Check free slots first
         if (!free_slots.empty())
         {
@@ -173,12 +150,15 @@ PoolAllocator<T, BlockSize>::allocate(size_type n)
             free_slots.pop_back();
             return p;
         }
-        if (!current_block_slot || current_block_slot >= this->cur_block_end())
-            // If no free slots, and no memory blocks, or current block is full
-            // Allocate a new block
+        // Otherwise, carve from the current bump block, allocating a new one if needed
+        if (bump.empty())
+        {
             allocate_block();
+        }
+        return bump.allocate_one();
     }
-    return current_block_slot++;
+    // unreachable, kept to satisfy all paths
+    return nullptr;
 }
 
 // Deallocate a single object

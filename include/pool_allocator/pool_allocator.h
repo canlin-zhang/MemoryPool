@@ -35,6 +35,60 @@
 #include <memory>
 #include <vector>
 
+// Internal helper for lazy bump allocation of a single contiguous block
+namespace pool_allocator_detail
+{
+template <typename Pointer>
+struct BumpBlock
+{
+    void init(Pointer start, size_t count)
+    {
+        this->next = start;
+        this->end = start + count;
+    }
+    void reset() noexcept
+    {
+        next = nullptr;
+        end = nullptr;
+    }
+    bool empty() const noexcept
+    {
+        return next == end;
+    }
+    size_t remaining() const noexcept
+    {
+        return static_cast<size_t>(end - next);
+    }
+    Pointer allocate_one() noexcept
+    {
+        if (empty())
+            return nullptr;
+        Pointer p = next;
+        ++next;
+        return p;
+    }
+    // Move any remaining slots into a free list vector and reset.
+    template <typename Vec>
+    void export_remaining(Vec& out)
+    {
+        if (empty())
+        {
+            return;
+        }
+        out.reserve(out.size() + remaining());
+        while (next != end)
+        {
+            out.push_back(next++);
+        }
+        reset();
+    }
+
+  private:
+    Pointer next = nullptr; // next un-split slot
+    Pointer end = nullptr;  // one-past-the-last slot in the current block
+};
+} // namespace pool_allocator_detail
+
 template <typename T, size_t BlockSize = 4096>
 class PoolAllocator
 {
@@ -134,11 +188,6 @@ class PoolAllocator
   private:
     //! A pointer to the beginning (or end) of a block
     using block_pointer = T*;
-    //! Given a block pointer, return a "end" pointer for that block
-    block_pointer cur_block_end() const
-    {
-        return memory_blocks.back() + BlockSize / sizeof(T);
-    }
 
     // Allocate a memory block
     void allocate_block();
@@ -170,12 +219,10 @@ class PoolAllocator
     // Pointer to blocks of memory
     std::vector<block_pointer> memory_blocks;
 
-    // Pointer to the next uninitialized slot within the most recently allocated block;
-    // it is nullptr until the first block is allocated and advances as slots are carved
-    // out, effectively tracking how much of the current block has been consumed.
-    pointer current_block_slot = nullptr;
+    // Helper to lazily split the most recently allocated block into slots on demand.
+    pool_allocator_detail::BumpBlock<pointer> bump;
 
-    // Free list; holds deallocated memory.  This will be returned to caller first
+    // Free list; holds deallocated memory. This will be returned to callers first.
     std::vector<pointer> free_slots;
 };
 
