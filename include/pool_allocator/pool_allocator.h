@@ -30,14 +30,9 @@
  * 3. Added unique_ptr its necessary helper functions
  */
 
-#include <algorithm>
 #include <cassert>
-#include <climits>
 #include <cstddef>
-#include <cstdlib>
-#include <iostream>
 #include <memory>
-#include <stack>
 #include <vector>
 
 template <typename T, size_t BlockSize = 4096>

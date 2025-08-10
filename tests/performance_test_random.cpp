@@ -7,6 +7,7 @@
 #include <memory>
 #include <pool_allocator/pool_allocator.h>
 #include <random>
+#include <stack>
 #include <vector>
 
 template <typename Alloc>
