@@ -75,10 +75,10 @@ PoolAllocator<T, BlockSize>::_export_all()
     if (!memory_blocks.empty())
     {
         const pointer end = cur_block_end();
-        exported.free_slots.c.reserve(end - this->current_block_slot);
+        exported.free_slots.reserve(end - this->current_block_slot);
         // Convert the partially free (bump allocated) blocks to free slots
         while (this->current_block_slot < end)
-            exported.free_slots.push(this->current_block_slot++);
+            exported.free_slots.push_back(this->current_block_slot++);
     }
 
     // Move memory blocks to the exported struct
@@ -95,7 +95,7 @@ void
 PoolAllocator<T, BlockSize>::_import(ExportedAlloc exported)
 {
     // Append the free slots from the exported allocator
-    free_slots.c.insert(free_slots.c.end(), exported.free_slots.begin(), exported.free_slots.end());
+    free_slots.insert(free_slots.end(), exported.free_slots.begin(), exported.free_slots.end());
 
     // Append imported memory blocks from the exported allocator
     memory_blocks.insert(memory_blocks.end(), exported.memory_blocks.begin(),

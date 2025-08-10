@@ -151,7 +151,7 @@ class PoolAllocator
     struct ExportedAlloc
     {
         // Free slots in the block
-        std::stack<pointer, std::vector<pointer>> free_slots;
+        std::vector<pointer> free_slots;
 
         // Memory blocks - Optional, only used in _export_all and _import
         std::vector<block_pointer> memory_blocks;
