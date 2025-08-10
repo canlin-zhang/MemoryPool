@@ -3,6 +3,7 @@
 #include <fstream>
 #include <gtest/gtest.h>
 #include <memory>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -236,4 +237,180 @@ TEST_F(TransferTest, TransferAllThenAllocateFromDestUsesTransferredSlots)
     dest.deallocate(extra);
     for (auto* p : got)
         dest.deallocate(p);
+}
+
+// Randomized sequence test verifying allocator state against a simple model
+TEST(TransferRandomized, RandomSequenceMatchesPrediction)
+{
+    std::mt19937 rng(1337u);
+    std::uniform_int_distribution<int> opDist(0, 9); // choose among 10 operations
+    constexpr int kIters = 1000;
+
+    struct Model
+    {
+        int blocks_alloc = 0;
+        int slots_avail = 0;
+        int bump_avail = 0;
+        void alloc_one()
+        {
+            if (slots_avail > 0)
+            {
+                --slots_avail;
+            }
+            else if (bump_avail > 0)
+            {
+                --bump_avail;
+            }
+            else
+            {
+                ++blocks_alloc;
+                bump_avail = kSlotsPerBlock - 1; // consume one slot from the new block
+            }
+        }
+        void dealloc_one() { ++slots_avail; }
+        void transfer_free_to(Model& to)
+        {
+            to.slots_avail += slots_avail;
+            slots_avail = 0;
+        }
+        void transfer_all_to(Model& to)
+        {
+            to.blocks_alloc += blocks_alloc;
+            to.slots_avail += slots_avail + bump_avail;
+            blocks_alloc = 0;
+            slots_avail = 0;
+            bump_avail = 0;
+        }
+    } mA, mB;
+
+    TestAlloc A, B;
+    std::vector<int*> liveA;
+    std::vector<int*> liveB;
+
+    auto check = [&](const TestAlloc& real, const Model& m) {
+        EXPECT_EQ(real.allocated_bytes(), static_cast<size_t>(m.blocks_alloc) * kBlockSize);
+        EXPECT_EQ(real.num_slots_available(), static_cast<size_t>(m.slots_avail));
+        EXPECT_EQ(real.num_bump_available(), static_cast<size_t>(m.bump_avail));
+    };
+
+    for (int it = 0; it < kIters; ++it)
+    {
+        int op = opDist(rng);
+        switch (op)
+        {
+            case 0: // alloc A
+            {
+                int* p = A.allocate();
+                ASSERT_NE(p, nullptr);
+                liveA.push_back(p);
+                mA.alloc_one();
+                break;
+            }
+            case 1: // alloc B
+            {
+                int* p = B.allocate();
+                ASSERT_NE(p, nullptr);
+                liveB.push_back(p);
+                mB.alloc_one();
+                break;
+            }
+            case 2: // dealloc A
+            {
+                if (!liveA.empty())
+                {
+                    std::uniform_int_distribution<size_t> idx(0, liveA.size() - 1);
+                    size_t i = idx(rng);
+                    int* p = liveA[i];
+                    A.deallocate(p);
+                    liveA[i] = liveA.back();
+                    liveA.pop_back();
+                    mA.dealloc_one();
+                }
+                break;
+            }
+            case 3: // dealloc B
+            {
+                if (!liveB.empty())
+                {
+                    std::uniform_int_distribution<size_t> idx(0, liveB.size() - 1);
+                    size_t i = idx(rng);
+                    int* p = liveB[i];
+                    B.deallocate(p);
+                    liveB[i] = liveB.back();
+                    liveB.pop_back();
+                    mB.dealloc_one();
+                }
+                break;
+            }
+            case 4: // transfer_free A -> B
+            {
+                B.transfer_free(A);
+                mA.transfer_free_to(mB);
+                break;
+            }
+            case 5: // transfer_free B -> A
+            {
+                A.transfer_free(B);
+                mB.transfer_free_to(mA);
+                break;
+            }
+            case 6: // transfer_all A -> B (only if no live allocations in A)
+            {
+                if (liveA.empty())
+                {
+                    B.transfer_all(A);
+                    mA.transfer_all_to(mB);
+                }
+                break;
+            }
+            case 7: // transfer_all B -> A (only if no live allocations in B)
+            {
+                if (liveB.empty())
+                {
+                    A.transfer_all(B);
+                    mB.transfer_all_to(mA);
+                }
+                break;
+            }
+            case 8: // bulk alloc 10 in A
+            {
+                for (int i = 0; i < 10; ++i)
+                {
+                    int* p = A.allocate();
+                    ASSERT_NE(p, nullptr);
+                    liveA.push_back(p);
+                    mA.alloc_one();
+                }
+                break;
+            }
+            case 9: // bulk alloc 10 in B
+            {
+                for (int i = 0; i < 10; ++i)
+                {
+                    int* p = B.allocate();
+                    ASSERT_NE(p, nullptr);
+                    liveB.push_back(p);
+                    mB.alloc_one();
+                }
+                break;
+            }
+        }
+
+        check(A, mA);
+        check(B, mB);
+    }
+
+    // Cleanup
+    for (int* p : liveA)
+    {
+        A.deallocate(p);
+        mA.dealloc_one();
+    }
+    for (int* p : liveB)
+    {
+        B.deallocate(p);
+        mB.dealloc_one();
+    }
+    check(A, mA);
+    check(B, mB);
 }
