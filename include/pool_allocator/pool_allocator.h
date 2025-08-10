@@ -169,9 +169,13 @@ class PoolAllocator
 
     // Pointer to blocks of memory
     std::vector<block_pointer> memory_blocks;
-    pointer current_block_slot = nullptr; // Current slot in the current block
 
-    // Free list
+    // Pointer to the next uninitialized slot within the most recently allocated block;
+    // it is nullptr until the first block is allocated and advances as slots are carved
+    // out, effectively tracking how much of the current block has been consumed.
+    pointer current_block_slot = nullptr;
+
+    // Free list; holds deallocated memory.  This will be returned to caller first
     std::vector<pointer> free_slots;
 };
 
