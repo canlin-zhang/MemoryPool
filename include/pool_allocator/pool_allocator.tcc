@@ -54,7 +54,6 @@ PoolAllocator<T, BlockSize>::~PoolAllocator() noexcept
     }
 }
 
-
 template <typename T, size_t BlockSize>
 typename PoolAllocator<T, BlockSize>::ExportedAlloc
 PoolAllocator<T, BlockSize>::export_free()
@@ -97,9 +96,18 @@ PoolAllocator<T, BlockSize>::import(ExportedAlloc exported)
     // Append the free slots from the exported allocator
     free_slots.insert(free_slots.end(), exported.free_slots.begin(), exported.free_slots.end());
 
+    const int prior_last_block_idx = memory_blocks.size() - 1;
     // Append imported memory blocks from the exported allocator
     memory_blocks.insert(memory_blocks.end(), exported.memory_blocks.begin(),
                          exported.memory_blocks.end());
+
+    if (prior_last_block_idx >= 0)
+        std::swap(memory_blocks.back(), memory_blocks[prior_last_block_idx]);
+
+    // note: ok to leave current_block_slot as is
+    // if it's currently null, we need to allocate a new block in order to use it
+    // and if it's not null, we've restored the last memory block to what it was before so that the
+    // range [current_block_slot, this->cur_block_end()) is still what's waiting to be allocated.
 }
 
 template <typename T, size_t BlockSize>
