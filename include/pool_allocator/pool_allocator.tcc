@@ -72,7 +72,7 @@ PoolAllocator<T, BlockSize>::export_all()
     ExportedAlloc exported = this->export_free();
     // Before moving the free slots, unwind the partially free bump-allocation block
     // Add its free slots to the exported free slots
-    if (!memory_blocks.empty())
+    if (this->current_block_slot)
     {
         const pointer end = cur_block_end();
         exported.free_slots.reserve(end - this->current_block_slot);
@@ -165,7 +165,7 @@ PoolAllocator<T, BlockSize>::allocate(size_type n)
             free_slots.pop_back();
             return p;
         }
-        if (memory_blocks.empty() || current_block_slot >= this->cur_block_end())
+        if (!current_block_slot || current_block_slot >= this->cur_block_end())
             // If no free slots, and no memory blocks, or current block is full
             // Allocate a new block
             allocate_block();
