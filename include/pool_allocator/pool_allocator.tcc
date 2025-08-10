@@ -57,7 +57,7 @@ PoolAllocator<T, BlockSize>::~PoolAllocator() noexcept
 
 template <typename T, size_t BlockSize>
 typename PoolAllocator<T, BlockSize>::ExportedAlloc
-PoolAllocator<T, BlockSize>::_export_free()
+PoolAllocator<T, BlockSize>::export_free()
 {
     ExportedAlloc exported;
     // this clears this->free_slots so we can't re-export same slots
@@ -67,9 +67,9 @@ PoolAllocator<T, BlockSize>::_export_free()
 
 template <typename T, size_t BlockSize>
 typename PoolAllocator<T, BlockSize>::ExportedAlloc
-PoolAllocator<T, BlockSize>::_export_all()
+PoolAllocator<T, BlockSize>::export_all()
 {
-    ExportedAlloc exported = this->_export_free();
+    ExportedAlloc exported = this->export_free();
     // Before moving the free slots, unwind the partially free bump-allocation block
     // Add its free slots to the exported free slots
     if (!memory_blocks.empty())
@@ -92,7 +92,7 @@ PoolAllocator<T, BlockSize>::_export_all()
 
 template <typename T, size_t BlockSize>
 void
-PoolAllocator<T, BlockSize>::_import(ExportedAlloc exported)
+PoolAllocator<T, BlockSize>::import(ExportedAlloc exported)
 {
     // Append the free slots from the exported allocator
     free_slots.insert(free_slots.end(), exported.free_slots.begin(), exported.free_slots.end());
@@ -109,7 +109,7 @@ PoolAllocator<T, BlockSize>::transfer_all(PoolAllocator<T, BlockSize>& from)
     assert(&from != this && "Cannot import directly from self");
 
     // Export and Import the free slots
-    this->_import(from._export_all());
+    this->import(from.export_all());
 }
 
 template <typename T, size_t BlockSize>
@@ -119,12 +119,12 @@ PoolAllocator<T, BlockSize>::transfer_free(PoolAllocator<T, BlockSize>& from)
     assert(&from != this && "Cannot import directly from self");
 
     // Export and Import the free slots
-    this->_import(from._export_free());
+    this->import(from.export_free());
 }
 
 template <typename T, size_t BlockSize>
 void
-PoolAllocator<T, BlockSize>::allocateBlock()
+PoolAllocator<T, BlockSize>::allocate_block()
 {
     // Allocate a new block of memory
     block_pointer new_block =
@@ -168,7 +168,7 @@ PoolAllocator<T, BlockSize>::allocate(size_type n)
         if (memory_blocks.empty() || current_block_slot >= this->cur_block_end())
             // If no free slots, and no memory blocks, or current block is full
             // Allocate a new block
-            allocateBlock();
+            allocate_block();
     }
     return current_block_slot++;
 }
