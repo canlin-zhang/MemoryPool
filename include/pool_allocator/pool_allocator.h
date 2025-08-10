@@ -169,7 +169,7 @@ class PoolAllocator
 
     // Pointer to blocks of memory
     std::vector<block_pointer> memory_blocks;
-    pointer current_block_slot = 0; // Current slot in the current block
+    pointer current_block_slot = nullptr; // Current slot in the current block
 
     // Free list
     std::vector<pointer> free_slots;
