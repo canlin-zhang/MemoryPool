@@ -168,16 +168,22 @@ class PoolAllocator
 
     // Debug helper functions
     // Get total allocated size
-    inline size_type total_allocated_size() const noexcept
+    inline size_type allocated_bytes() const noexcept
     {
         return memory_blocks.size() * BlockSize;
     }
 
     // Get total number of free slots
     // Does not account for partial blocks
-    inline size_type total_free_slots() const noexcept
+    inline size_type num_slots_available() const noexcept
     {
         return free_slots.size();
+    }
+
+    // Get number of slots in bump allocator
+    inline size_type num_bump_available() const noexcept
+    {
+        return bump.remaining();
     }
 
     // Transfer free slots from another allocator
