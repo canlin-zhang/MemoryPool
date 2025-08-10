@@ -32,7 +32,9 @@
 
 #include <cassert>
 #include <cstddef>
+#include <iterator>
 #include <memory>
+#include <utility>
 #include <vector>
 
 // Internal helper for lazy bump allocation of a single contiguous block
@@ -87,8 +89,170 @@ struct BumpBlock
     Pointer next = nullptr; // next un-split slot
     Pointer end = nullptr;  // one-past-the-last slot in the current block
 };
+
+template <typename T, typename Alloc = std::allocator<T>, size_t BlockSize = 4096>
+class BumpAllocator
+{
+  public:
+    /* Member types */
+    using value_type = T;
+    using pointer = T*;
+    using block_pointer = T*;
+
+    BumpAllocator() noexcept = default;
+    BumpAllocator(const BumpAllocator&) = delete;
+    BumpAllocator(BumpAllocator&&) noexcept = default;
+    BumpAllocator& operator=(const BumpAllocator&) = delete;
+    BumpAllocator& operator=(BumpAllocator&&) noexcept = default;
+    explicit BumpAllocator(Alloc&& alloc) noexcept
+        : block_source(std::forward<Alloc>(alloc))
+    {
+    }
+
+    pointer allocate(size_t n = 1)
+    {
+        if (n != 1)
+            return block_source.allocate(n);
+        if (bump.empty())
+        {
+            // TODO: ensure this is appropriately aligned
+            const size_t count = BlockSize / sizeof(value_type);
+            block_pointer p = block_source.allocate(count);
+            blocks.push_back(p);
+            bump.init(p, count);
+        }
+        return bump.allocate_one();
+    }
+    void deallocate(pointer p, size_t n = 1) noexcept
+    {
+        if (n != 1)
+            block_source.deallocate(p, n);
+        // single-slot dealloc is a no-op for bump
+    }
+
+    ~BumpAllocator() noexcept
+    {
+        // Deallocate all blocks
+        for (auto& block : blocks)
+        {
+            const size_t count = BlockSize / sizeof(value_type);
+            block_source.deallocate(block, count);
+        }
+        blocks.clear();
+        bump.reset();
+    }
+    // Metrics
+    size_t allocated_bytes() const noexcept
+    {
+        return blocks.size() * BlockSize;
+    }
+    size_t bump_remaining() const noexcept
+    {
+        return bump.remaining();
+    }
+    // Export: move remaining bump slots to free list and move blocks out.
+    template <class VecSlots, class VecBlocks>
+    void export_all(VecSlots& out_free_slots, VecBlocks& out_blocks)
+    {
+        bump.export_remaining(out_free_slots);
+        std::swap(out_blocks, blocks);
+        bump.reset();
+    }
+    // Import: take ownership of blocks (for accounting and destruction). Bump remains empty.
+    template <class VecBlocks>
+    void import_blocks(VecBlocks&& in_blocks)
+    {
+        blocks.insert(blocks.end(), std::make_move_iterator(in_blocks.begin()),
+                      std::make_move_iterator(in_blocks.end()));
+    }
+
+  private:
+    Alloc block_source;
+    BumpBlock<pointer> bump;
+    std::vector<block_pointer> blocks;
+};
+
+template <typename T, typename Alloc = std::allocator<T>>
+class StackAllocator
+{
+  public:
+    using value_type = T;
+    using pointer = value_type*;
+
+    StackAllocator() noexcept = default;
+    explicit StackAllocator(Alloc&& alloc) noexcept
+        : slot_source(std::forward<Alloc>(alloc))
+    {
+    }
+    StackAllocator(const StackAllocator&) = delete;
+    StackAllocator(StackAllocator&&) noexcept = default;
+    StackAllocator& operator=(const StackAllocator&) = delete;
+    StackAllocator& operator=(StackAllocator&&) noexcept = default;
+
+    pointer allocate(size_t n = 1)
+    {
+        if (n != 1)
+            return slot_source.allocate(n);
+        if (free_slots.empty())
+            return slot_source.allocate(n);
+        pointer p = free_slots.back();
+        free_slots.pop_back();
+        return p;
+    }
+
+    void deallocate(pointer p, size_t n = 1) noexcept
+    {
+        if (n != 1)
+            return slot_source.deallocate(p, n);
+        free_slots.push_back(p);
+    }
+
+    // Metrics
+    size_t free_size() const noexcept
+    {
+        return free_slots.size();
+    }
+    size_t underlying_allocated_bytes() const noexcept
+    {
+        return slot_source.allocated_bytes();
+    }
+    size_t underlying_bump_remaining() const noexcept
+    {
+        return slot_source.bump_remaining();
+    }
+    // Export/import free slots
+    template <class Vec>
+    void export_free(Vec& out) noexcept
+    {
+        std::swap(out, free_slots);
+    }
+    template <class Vec>
+    void import_free(Vec&& in)
+    {
+        free_slots.insert(free_slots.end(), std::make_move_iterator(in.begin()),
+                          std::make_move_iterator(in.end()));
+    }
+    // Export/import blocks via underlying allocator
+    template <class VecSlots, class VecBlocks>
+    void export_all(VecSlots& out_slots, VecBlocks& out_blocks)
+    {
+        export_free(out_slots);
+        slot_source.export_all(out_slots, out_blocks);
+    }
+    template <class VecBlocks>
+    void import_blocks(VecBlocks&& in_blocks)
+    {
+        slot_source.import_blocks(std::forward<VecBlocks>(in_blocks));
+    }
+
+  private:
+    Alloc slot_source;
+    std::vector<pointer> free_slots;
+};
+
 } // namespace pool_allocator_detail
 
+// PoolAllocator combines a bump allocator with a stack allocator
 template <typename T, size_t BlockSize = 4096>
 class PoolAllocator
 {
@@ -127,18 +291,24 @@ class PoolAllocator
     // We do not allow move assignment for allocators
     PoolAllocator& operator=(PoolAllocator&& other) = delete;
 
-    // Allocation and deallocation
-    pointer allocate(size_type n = 1);
-    void deallocate(pointer p, size_type n = 1) noexcept;
+    // Allocation and deallocation are done by allocator
+    pointer allocate(size_type n = 1)
+    {
+        return allocator.allocate(n);
+    }
+    void deallocate(pointer p, size_type n = 1) noexcept
+    {
+        allocator.deallocate(p, n);
+    }
+
+    // Maximum size of an allocation from this pool
+    size_type max_size() const noexcept;
 
     // Construct and destory functions
     template <class U, class... Args>
     void construct(U* p, Args&&... args);
     template <class U>
     void destroy(U* p) noexcept;
-
-    // Maximum size of the pool
-    size_type max_size() const noexcept;
 
     // Unique pointer support
     // Deleter
@@ -170,20 +340,20 @@ class PoolAllocator
     // Get total allocated size
     inline size_type allocated_bytes() const noexcept
     {
-        return memory_blocks.size() * BlockSize;
+        return allocator.underlying_allocated_bytes();
     }
 
     // Get total number of free slots
     // Does not account for partial blocks
     inline size_type num_slots_available() const noexcept
     {
-        return free_slots.size();
+        return allocator.free_size();
     }
 
     // Get number of slots in bump allocator
     inline size_type num_bump_available() const noexcept
     {
-        return bump.remaining();
+        return allocator.underlying_bump_remaining();
     }
 
     // Transfer free slots from another allocator
@@ -192,19 +362,16 @@ class PoolAllocator
     void transfer_all(PoolAllocator<T, BlockSize>& from);
 
   private:
-    //! A pointer to the beginning (or end) of a block
-    using block_pointer = T*;
-
-    // Allocate a memory block
-    void allocate_block();
-
+    // Compose a free-list stack allocator over a bump allocator for backing blocks.
+    using BumpAlloc = pool_allocator_detail::BumpAllocator<T, std::allocator<T>, BlockSize>;
+    using ComboAlloc = pool_allocator_detail::StackAllocator<T, BumpAlloc>;
     struct ExportedAlloc
     {
         // Free slots in the block
         std::vector<pointer> free_slots;
 
         // Memory blocks - Optional, only used in export_all and import
-        std::vector<block_pointer> memory_blocks;
+        std::vector<typename BumpAlloc::block_pointer> memory_blocks;
     };
 
     // Allocator import/export functions
@@ -222,14 +389,7 @@ class PoolAllocator
     //! Import all memory blocks and free slots from an ExportedAlloc
     void import(ExportedAlloc exported);
 
-    // Pointer to blocks of memory
-    std::vector<block_pointer> memory_blocks;
-
-    // Helper to lazily split the most recently allocated block into slots on demand.
-    pool_allocator_detail::BumpBlock<pointer> bump;
-
-    // Free list; holds deallocated memory. This will be returned to callers first.
-    std::vector<pointer> free_slots;
+    ComboAlloc allocator; // owns BlockAlloc internally and free list on top
 };
 
 // Operators

@@ -45,22 +45,15 @@ PoolAllocator<T, BlockSize>::PoolAllocator() noexcept
 
 // Destructor
 template <typename T, size_t BlockSize>
-PoolAllocator<T, BlockSize>::~PoolAllocator() noexcept
-{
-    // Free all memory blocks
-    for (pointer block : memory_blocks)
-    {
-        ::operator delete(block, std::align_val_t(alignof(T)));
-    }
-}
+PoolAllocator<T, BlockSize>::~PoolAllocator() noexcept = default;
 
 template <typename T, size_t BlockSize>
 typename PoolAllocator<T, BlockSize>::ExportedAlloc
 PoolAllocator<T, BlockSize>::export_free()
 {
     ExportedAlloc exported;
-    // this clears this->free_slots so we can't re-export same slots
-    std::swap(exported.free_slots, this->free_slots);
+    // Export only free slots from the top free-list layer
+    allocator.export_free(exported.free_slots);
     return exported;
 }
 
@@ -68,13 +61,9 @@ template <typename T, size_t BlockSize>
 typename PoolAllocator<T, BlockSize>::ExportedAlloc
 PoolAllocator<T, BlockSize>::export_all()
 {
-    ExportedAlloc exported = this->export_free();
-    // Export any remaining un-split slots from the current block
-    this->bump.export_remaining(exported.free_slots);
-
-    // Move memory blocks to the exported struct
-    std::swap(exported.memory_blocks, this->memory_blocks);
-
+    ExportedAlloc exported;
+    // Then export all blocks and the remaining bump slots from the bump layer
+    allocator.export_all(exported.free_slots, exported.memory_blocks);
     return exported;
 }
 
@@ -82,11 +71,10 @@ template <typename T, size_t BlockSize>
 void
 PoolAllocator<T, BlockSize>::import(ExportedAlloc exported)
 {
-    // Append the free slots from the exported allocator
-    free_slots.insert(free_slots.end(), exported.free_slots.begin(), exported.free_slots.end());
-    // Append imported memory blocks from the exported allocator
-    memory_blocks.insert(memory_blocks.end(), exported.memory_blocks.begin(),
-                         exported.memory_blocks.end());
+    // Import free slots into free-list layer
+    allocator.import_free(exported.free_slots);
+    // Import blocks ownership into bump layer (no bump state)
+    allocator.import_blocks(exported.memory_blocks);
 }
 
 template <typename T, size_t BlockSize>
@@ -107,83 +95,6 @@ PoolAllocator<T, BlockSize>::transfer_free(PoolAllocator<T, BlockSize>& from)
 
     // Export and Import the free slots
     this->import(from.export_free());
-}
-
-template <typename T, size_t BlockSize>
-void
-PoolAllocator<T, BlockSize>::allocate_block()
-{
-    // Allocate a new block of memory
-    block_pointer new_block =
-        reinterpret_cast<block_pointer>(::operator new(BlockSize, std::align_val_t(alignof(T))));
-
-    // Push the new block to the free blocks stack
-    memory_blocks.push_back(new_block);
-    // Initialize bump state for lazy splitting of this block
-    constexpr size_type items_per_block = BlockSize / sizeof(T);
-    bump.init(new_block, items_per_block);
-}
-
-// Allocate a single object
-template <typename T, size_t BlockSize>
-typename PoolAllocator<T, BlockSize>::pointer
-PoolAllocator<T, BlockSize>::allocate(size_type n)
-{
-    // Do nothing if n is 0
-    if (n == 0)
-    {
-        return nullptr;
-    }
-    // For multiple objects, we revert to std::allocator
-    else if (n > 1)
-    {
-        return std::allocator<T>().allocate(n);
-    }
-    // Handle single object allocation
-    else
-    {
-        // Check free slots first
-        if (!free_slots.empty())
-        {
-            // Pop the top slot from the free slots stack
-            pointer p = free_slots.back();
-            free_slots.pop_back();
-            return p;
-        }
-        // Otherwise, carve from the current bump block, allocating a new one if needed
-        if (bump.empty())
-        {
-            allocate_block();
-        }
-        return bump.allocate_one();
-    }
-    // unreachable, kept to satisfy all paths
-    return nullptr;
-}
-
-// Deallocate a single object
-template <typename T, size_t BlockSize>
-void
-PoolAllocator<T, BlockSize>::deallocate(pointer p, size_type n) noexcept
-{
-    // Do nothing if n is 0
-    if (n == 0)
-        return;
-    // For multiple objects, we revert to std::allocator
-    else if (n > 1)
-    {
-        std::allocator<T>().deallocate(p, n);
-    }
-    // Handle single object deallocation
-    // We push it back to the available slots
-    else
-    {
-        // Push pointer back to free slots stack
-        if (p != nullptr)
-        {
-            free_slots.push_back(p);
-        }
-    }
 }
 
 // Construct an object in the allocated memory
