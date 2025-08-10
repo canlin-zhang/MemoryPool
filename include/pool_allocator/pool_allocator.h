@@ -409,4 +409,4 @@ operator!=(const PoolAllocator<T, BlockSize>& a, const PoolAllocator<T, BlockSiz
 }
 
 // include the implementation file
-#include "pool_allocator.tcc"
+#include "pool_allocator.tcc" // IWYU pragma: export

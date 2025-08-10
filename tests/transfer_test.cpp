@@ -1,10 +1,11 @@
 #include "pool_allocator/pool_allocator.h"
 #include <algorithm>
+#include <cstddef>
 #include <fstream>
 #include <gtest/gtest.h>
-#include <memory>
 #include <random>
 #include <string>
+#include <tuple>
 #include <vector>
 
 // Test parameters derived once here

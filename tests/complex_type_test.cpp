@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <map>
 #include <pool_allocator/pool_allocator.h>
+#include <stdint.h>
 #include <string>
 #include <vector>
 

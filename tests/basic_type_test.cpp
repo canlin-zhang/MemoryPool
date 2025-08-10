@@ -1,6 +1,8 @@
 #include <pool_allocator/pool_allocator.h>
 
 #include <gtest/gtest.h>
+#include <cstddef>
+#include <memory>
 
 // Test fundamental types
 // Test fixture: Memory pool of int, double and char

@@ -5,9 +5,15 @@
 #include <iomanip> // make sure this is at the top of your file
 #include <iostream>
 #include <memory>
+#include <new>
 #include <pool_allocator/pool_allocator.h>
 #include <random>
 #include <stack>
+#include <stdint.h>
+#include <cstddef>
+#include <string>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 template <typename Alloc>
