@@ -43,53 +43,23 @@ namespace pool_allocator_detail
 template <typename Pointer>
 struct BumpBlock
 {
-    void init(Pointer start, size_t count)
-    {
-        this->next = start;
-        this->end = start + count;
-    }
-    void reset() noexcept
-    {
-        next = nullptr;
-        end = nullptr;
-    }
-    bool empty() const noexcept
-    {
-        return next == end;
-    }
-    size_t remaining() const noexcept
-    {
-        return static_cast<size_t>(end - next);
-    }
-    Pointer allocate_one() noexcept
-    {
-        if (empty())
-            return nullptr;
-        Pointer p = next;
-        ++next;
-        return p;
-    }
+    void init(Pointer start, size_t count);
+    void reset() noexcept;
+    bool empty() const noexcept;
+    size_t remaining() const noexcept;
+    Pointer allocate_one() noexcept;
     // Move any remaining slots into a free list vector and reset.
     template <typename Vec>
-    void export_remaining(Vec& out)
-    {
-        if (empty())
-        {
-            return;
-        }
-        out.reserve(out.size() + remaining());
-        while (next != end)
-        {
-            out.push_back(next++);
-        }
-        reset();
-    }
+    void export_remaining(Vec& out);
 
   private:
     Pointer next = nullptr; // next un-split slot
     Pointer end = nullptr;  // one-past-the-last slot in the current block
 };
 
+//! A basic bump allocator; uses an underlying allocator to allocate blocks and
+//! bumps a pointer within that block to provide allocations.  Doesn't handle deallocations at all,
+//! so is best wrapped in StackAllocator.
 template <typename T, typename Alloc = std::allocator<T>, size_t BlockSize = 4096>
 class BumpAllocator
 {
@@ -104,67 +74,21 @@ class BumpAllocator
     BumpAllocator(BumpAllocator&&) noexcept = default;
     BumpAllocator& operator=(const BumpAllocator&) = delete;
     BumpAllocator& operator=(BumpAllocator&&) noexcept = default;
-    explicit BumpAllocator(Alloc&& alloc) noexcept
-        : block_source(std::forward<Alloc>(alloc))
-    {
-    }
+    explicit BumpAllocator(Alloc&& alloc) noexcept;
 
-    pointer allocate(size_t n = 1)
-    {
-        if (n != 1)
-            return block_source.allocate(n);
-        if (bump.empty())
-        {
-            // TODO: ensure this is appropriately aligned
-            const size_t count = BlockSize / sizeof(value_type);
-            block_pointer p = block_source.allocate(count);
-            blocks.push_back(p);
-            bump.init(p, count);
-        }
-        return bump.allocate_one();
-    }
-    void deallocate(pointer p, size_t n = 1) noexcept
-    {
-        if (n != 1)
-            block_source.deallocate(p, n);
-        // single-slot dealloc is a no-op for bump
-    }
+    pointer allocate(size_t n = 1);
+    void deallocate(pointer p, size_t n = 1) noexcept;
 
-    ~BumpAllocator() noexcept
-    {
-        // Deallocate all blocks
-        for (auto& block : blocks)
-        {
-            const size_t count = BlockSize / sizeof(value_type);
-            block_source.deallocate(block, count);
-        }
-        blocks.clear();
-        bump.reset();
-    }
+    ~BumpAllocator() noexcept;
     // Metrics
-    size_t allocated_bytes() const noexcept
-    {
-        return blocks.size() * BlockSize;
-    }
-    size_t bump_remaining() const noexcept
-    {
-        return bump.remaining();
-    }
+    size_t allocated_bytes() const noexcept;
+    size_t bump_remaining() const noexcept;
     // Export: move remaining bump slots to free list and move blocks out.
     template <class VecSlots, class VecBlocks>
-    void export_all(VecSlots& out_free_slots, VecBlocks& out_blocks)
-    {
-        bump.export_remaining(out_free_slots);
-        std::swap(out_blocks, blocks);
-        bump.reset();
-    }
+    void export_all(VecSlots& out_free_slots, VecBlocks& out_blocks);
     // Import: take ownership of blocks (for accounting and destruction). Bump remains empty.
     template <class VecBlocks>
-    void import_blocks(VecBlocks&& in_blocks)
-    {
-        blocks.insert(blocks.end(), std::make_move_iterator(in_blocks.begin()),
-                      std::make_move_iterator(in_blocks.end()));
-    }
+    void import_blocks(VecBlocks&& in_blocks);
 
   private:
     Alloc block_source;
@@ -172,6 +96,8 @@ class BumpAllocator
     std::vector<block_pointer> blocks;
 };
 
+//! Wraps another allocator with a stack so that single deallocations
+//! can be easily returned as single allocations.
 template <typename T, typename Alloc = std::allocator<T>>
 class StackAllocator
 {
@@ -180,70 +106,30 @@ class StackAllocator
     using pointer = value_type*;
 
     StackAllocator() noexcept = default;
-    explicit StackAllocator(Alloc&& alloc) noexcept
-        : slot_source(std::forward<Alloc>(alloc))
-    {
-    }
+    explicit StackAllocator(Alloc&& alloc) noexcept;
     StackAllocator(const StackAllocator&) = delete;
     StackAllocator(StackAllocator&&) noexcept = default;
     StackAllocator& operator=(const StackAllocator&) = delete;
     StackAllocator& operator=(StackAllocator&&) noexcept = default;
 
-    pointer allocate(size_t n = 1)
-    {
-        if (n != 1)
-            return slot_source.allocate(n);
-        if (free_slots.empty())
-            return slot_source.allocate(n);
-        pointer p = free_slots.back();
-        free_slots.pop_back();
-        return p;
-    }
+    pointer allocate(size_t n = 1);
 
-    void deallocate(pointer p, size_t n = 1) noexcept
-    {
-        if (n != 1)
-            return slot_source.deallocate(p, n);
-        free_slots.push_back(p);
-    }
+    void deallocate(pointer p, size_t n = 1) noexcept;
 
     // Metrics
-    size_t free_size() const noexcept
-    {
-        return free_slots.size();
-    }
-    size_t underlying_allocated_bytes() const noexcept
-    {
-        return slot_source.allocated_bytes();
-    }
-    size_t underlying_bump_remaining() const noexcept
-    {
-        return slot_source.bump_remaining();
-    }
+    size_t free_size() const noexcept;
+    size_t underlying_allocated_bytes() const noexcept;
+    size_t underlying_bump_remaining() const noexcept;
     // Export/import free slots
     template <class Vec>
-    void export_free(Vec& out) noexcept
-    {
-        std::swap(out, free_slots);
-    }
+    void export_free(Vec& out) noexcept;
     template <class Vec>
-    void import_free(Vec&& in)
-    {
-        free_slots.insert(free_slots.end(), std::make_move_iterator(in.begin()),
-                          std::make_move_iterator(in.end()));
-    }
+    void import_free(Vec&& in);
     // Export/import blocks via underlying allocator
     template <class VecSlots, class VecBlocks>
-    void export_all(VecSlots& out_slots, VecBlocks& out_blocks)
-    {
-        export_free(out_slots);
-        slot_source.export_all(out_slots, out_blocks);
-    }
+    void export_all(VecSlots& out_slots, VecBlocks& out_blocks);
     template <class VecBlocks>
-    void import_blocks(VecBlocks&& in_blocks)
-    {
-        slot_source.import_blocks(std::forward<VecBlocks>(in_blocks));
-    }
+    void import_blocks(VecBlocks&& in_blocks);
 
   private:
     Alloc slot_source;

@@ -35,6 +35,189 @@
 #include <limits>
 #include <new> // for std::align_val_t
 
+// ==== pool_allocator_detail helpers: BumpBlock, BumpAllocator, StackAllocator ====
+namespace pool_allocator_detail {
+
+template <typename Pointer>
+void BumpBlock<Pointer>::init(Pointer start, size_t count)
+{
+    this->next = start;
+    this->end = start + count;
+}
+
+template <typename Pointer>
+void BumpBlock<Pointer>::reset() noexcept
+{
+    next = nullptr;
+    end = nullptr;
+}
+
+template <typename Pointer>
+bool BumpBlock<Pointer>::empty() const noexcept
+{
+    return next == end;
+}
+
+template <typename Pointer>
+size_t BumpBlock<Pointer>::remaining() const noexcept
+{
+    return static_cast<size_t>(end - next);
+}
+
+template <typename Pointer>
+Pointer BumpBlock<Pointer>::allocate_one() noexcept
+{
+    if (empty()) return nullptr;
+    Pointer p = next;
+    ++next;
+    return p;
+}
+
+template <typename Pointer>
+template <typename Vec>
+void BumpBlock<Pointer>::export_remaining(Vec& out)
+{
+    if (empty()) return;
+    out.reserve(out.size() + remaining());
+    while (next != end) {
+        out.push_back(next++);
+    }
+    reset();
+}
+
+template <typename T, typename Alloc, size_t BlockSize>
+BumpAllocator<T, Alloc, BlockSize>::BumpAllocator(Alloc&& alloc) noexcept
+    : block_source(std::forward<Alloc>(alloc)) {}
+
+template <typename T, typename Alloc, size_t BlockSize>
+typename BumpAllocator<T, Alloc, BlockSize>::pointer
+BumpAllocator<T, Alloc, BlockSize>::allocate(size_t n)
+{
+    if (n != 1) return block_source.allocate(n);
+    if (bump.empty()) {
+        const size_t count = BlockSize / sizeof(value_type);
+        block_pointer p = block_source.allocate(count);
+        blocks.push_back(p);
+        bump.init(p, count);
+    }
+    return bump.allocate_one();
+}
+
+template <typename T, typename Alloc, size_t BlockSize>
+void BumpAllocator<T, Alloc, BlockSize>::deallocate(pointer p, size_t n) noexcept
+{
+    if (n != 1) block_source.deallocate(p, n);
+}
+
+template <typename T, typename Alloc, size_t BlockSize>
+BumpAllocator<T, Alloc, BlockSize>::~BumpAllocator() noexcept
+{
+    for (auto& block : blocks) {
+        const size_t count = BlockSize / sizeof(value_type);
+        block_source.deallocate(block, count);
+    }
+    blocks.clear();
+    bump.reset();
+}
+
+template <typename T, typename Alloc, size_t BlockSize>
+size_t BumpAllocator<T, Alloc, BlockSize>::allocated_bytes() const noexcept
+{
+    return blocks.size() * BlockSize;
+}
+
+template <typename T, typename Alloc, size_t BlockSize>
+size_t BumpAllocator<T, Alloc, BlockSize>::bump_remaining() const noexcept
+{
+    return bump.remaining();
+}
+
+template <typename T, typename Alloc, size_t BlockSize>
+template <class VecSlots, class VecBlocks>
+void BumpAllocator<T, Alloc, BlockSize>::export_all(VecSlots& out_free_slots, VecBlocks& out_blocks)
+{
+    bump.export_remaining(out_free_slots);
+    std::swap(out_blocks, blocks);
+    bump.reset();
+}
+
+template <typename T, typename Alloc, size_t BlockSize>
+template <class VecBlocks>
+void BumpAllocator<T, Alloc, BlockSize>::import_blocks(VecBlocks&& in_blocks)
+{
+    blocks.insert(blocks.end(), std::make_move_iterator(in_blocks.begin()),
+                  std::make_move_iterator(in_blocks.end()));
+}
+
+template <typename T, typename Alloc>
+StackAllocator<T, Alloc>::StackAllocator(Alloc&& alloc) noexcept
+    : slot_source(std::forward<Alloc>(alloc)) {}
+
+template <typename T, typename Alloc>
+typename StackAllocator<T, Alloc>::pointer
+StackAllocator<T, Alloc>::allocate(size_t n)
+{
+    if (n != 1) return slot_source.allocate(n);
+    if (free_slots.empty()) return slot_source.allocate(n);
+    pointer p = free_slots.back();
+    free_slots.pop_back();
+    return p;
+}
+
+template <typename T, typename Alloc>
+void StackAllocator<T, Alloc>::deallocate(pointer p, size_t n) noexcept
+{
+    if (n != 1) { slot_source.deallocate(p, n); return; }
+    free_slots.push_back(p);
+}
+
+template <typename T, typename Alloc>
+size_t StackAllocator<T, Alloc>::free_size() const noexcept { return free_slots.size(); }
+
+template <typename T, typename Alloc>
+size_t StackAllocator<T, Alloc>::underlying_allocated_bytes() const noexcept
+{
+    return slot_source.allocated_bytes();
+}
+
+template <typename T, typename Alloc>
+size_t StackAllocator<T, Alloc>::underlying_bump_remaining() const noexcept
+{
+    return slot_source.bump_remaining();
+}
+
+template <typename T, typename Alloc>
+template <class Vec>
+void StackAllocator<T, Alloc>::export_free(Vec& out) noexcept
+{
+    std::swap(out, free_slots);
+}
+
+template <typename T, typename Alloc>
+template <class Vec>
+void StackAllocator<T, Alloc>::import_free(Vec&& in)
+{
+    free_slots.insert(free_slots.end(), std::make_move_iterator(in.begin()),
+                      std::make_move_iterator(in.end()));
+}
+
+template <typename T, typename Alloc>
+template <class VecSlots, class VecBlocks>
+void StackAllocator<T, Alloc>::export_all(VecSlots& out_slots, VecBlocks& out_blocks)
+{
+    export_free(out_slots);
+    slot_source.export_all(out_slots, out_blocks);
+}
+
+template <typename T, typename Alloc>
+template <class VecBlocks>
+void StackAllocator<T, Alloc>::import_blocks(VecBlocks&& in_blocks)
+{
+    slot_source.import_blocks(std::forward<VecBlocks>(in_blocks));
+}
+
+} // namespace pool_allocator_detail
+
 // Default constructor
 template <typename T, size_t BlockSize>
 PoolAllocator<T, BlockSize>::PoolAllocator() noexcept
