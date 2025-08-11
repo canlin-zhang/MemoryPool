@@ -152,13 +152,17 @@ BumpAllocator<T, Alloc, BlockSize>::bump_remaining() const noexcept
 }
 
 template <typename T, typename Alloc, size_t BlockSize>
-template <class VecSlots, class VecBlocks>
-void
-BumpAllocator<T, Alloc, BlockSize>::export_all(VecSlots& out_free_slots, VecBlocks& out_blocks)
+auto
+BumpAllocator<T, Alloc, BlockSize>::export_all() -> std::pair<FreeSlotsContainer, BlocksContainer>
 {
+    FreeSlotsContainer out_free_slots;
+    out_free_slots.reserve(bump.remaining());
     bump.export_remaining(out_free_slots);
-    std::swap(out_blocks, blocks);
-    bump.reset();
+
+    BlocksContainer out_blocks;
+    out_blocks.swap(blocks);
+
+    return {std::move(out_free_slots), std::move(out_blocks)};
 }
 
 template <typename T, typename Alloc, size_t BlockSize>
@@ -209,37 +213,39 @@ StackAllocator<T, Alloc>::free_size() const noexcept
 }
 
 template <typename T, typename Alloc>
-template <class Vec>
-void
-StackAllocator<T, Alloc>::export_free(Vec& out) noexcept
+typename StackAllocator<T, Alloc>::FreeSlotsContainer
+StackAllocator<T, Alloc>::export_free() noexcept
 {
+    FreeSlotsContainer out;
     std::swap(out, free_slots);
+    return out;
 }
 
 template <typename T, typename Alloc>
-template <class Vec>
 void
-StackAllocator<T, Alloc>::import_free(Vec&& in)
+StackAllocator<T, Alloc>::import_free(FreeSlotsContainer&& in)
 {
-    free_slots.insert(free_slots.end(), std::make_move_iterator(in.begin()),
-                      std::make_move_iterator(in.end()));
+    free_slots.insert(free_slots.end(), in.begin(), in.end());
 }
 
 template <typename T, typename Alloc>
-template <class VecSlots, class VecBlocks>
-void
-StackAllocator<T, Alloc>::export_all(VecSlots& out_slots, VecBlocks& out_blocks)
+typename StackAllocator<T, Alloc>::ExportedAlloc
+StackAllocator<T, Alloc>::export_all()
 {
-    export_free(out_slots);
-    parent.export_all(out_slots, out_blocks);
+    ExportedAlloc exported;
+    exported.free_slots = export_free();
+    auto [fs, mb] = parent.export_all();
+    exported.memory_blocks = std::move(mb);
+    exported.free_slots.insert(exported.free_slots.end(), fs.begin(), fs.end());
+    return exported;
 }
 
 template <typename T, typename Alloc>
-template <class VecBlocks>
 void
-StackAllocator<T, Alloc>::import_blocks(VecBlocks&& in_blocks)
+StackAllocator<T, Alloc>::import_blocks(ExportedAlloc&& in_blocks)
 {
-    parent.import_blocks(std::forward<VecBlocks>(in_blocks));
+    import_free(std::move(in_blocks.free_slots));
+    parent.import_blocks(std::move(in_blocks.memory_blocks));
 }
 
 // ---- ObjectOpsMixin implementations ----
@@ -342,30 +348,21 @@ template <typename T, size_t BlockSize>
 typename PoolAllocator<T, BlockSize>::ExportedAlloc
 PoolAllocator<T, BlockSize>::export_free()
 {
-    ExportedAlloc exported;
-    // Export only free slots from the top free-list layer
-    allocator.export_free(exported.free_slots);
-    return exported;
+    return ExportedAlloc{.free_slots = allocator.export_free()};
 }
 
 template <typename T, size_t BlockSize>
 typename PoolAllocator<T, BlockSize>::ExportedAlloc
 PoolAllocator<T, BlockSize>::export_all()
 {
-    ExportedAlloc exported;
-    // Then export all blocks and the remaining bump slots from the bump layer
-    allocator.export_all(exported.free_slots, exported.memory_blocks);
-    return exported;
+    return allocator.export_all();
 }
 
 template <typename T, size_t BlockSize>
 void
-PoolAllocator<T, BlockSize>::import(ExportedAlloc exported)
+PoolAllocator<T, BlockSize>::import(ExportedAlloc&& exported)
 {
-    // Import free slots into free-list layer
-    allocator.import_free(exported.free_slots);
-    // Import blocks ownership into bump layer (no bump state)
-    allocator.import_blocks(exported.memory_blocks);
+    allocator.import_blocks(std::move(exported));
 }
 
 template <typename T, size_t BlockSize>

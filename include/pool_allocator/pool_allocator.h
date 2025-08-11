@@ -68,6 +68,8 @@ class BumpAllocator
     using value_type = T;
     using pointer = T*;
     using block_pointer = T*;
+    using BlocksContainer = std::vector<block_pointer>;
+    using FreeSlotsContainer = std::vector<pointer>;
 
     BumpAllocator() noexcept = default;
     BumpAllocator(const BumpAllocator&) = delete;
@@ -84,8 +86,11 @@ class BumpAllocator
     size_t allocated_bytes() const noexcept;
     size_t bump_remaining() const noexcept;
     // Export: move remaining bump slots to free list and move blocks out.
-    template <class VecSlots, class VecBlocks>
-    void export_all(VecSlots& out_free_slots, VecBlocks& out_blocks);
+    // New overload that returns the exported value.
+    [[nodiscard]] std::pair<FreeSlotsContainer, BlocksContainer> export_all();
+    // // Backward-compatible overload that fills the provided containers.
+    // template <class VecSlots, class VecBlocks>
+    // void export_all(VecSlots& out_free_slots, VecBlocks& out_blocks);
     // Import: take ownership of blocks (for accounting and destruction). Bump remains empty.
     template <class VecBlocks>
     void import_blocks(VecBlocks&& in_blocks);
@@ -94,7 +99,7 @@ class BumpAllocator
 
   private:
     BumpBlock<pointer> bump;
-    std::vector<block_pointer> blocks;
+    BlocksContainer blocks;
 };
 
 //! Wraps another allocator with a stack so that single deallocations
@@ -105,6 +110,7 @@ class StackAllocator
   public:
     using value_type = T;
     using pointer = value_type*;
+    using FreeSlotsContainer = std::vector<pointer>;
 
     StackAllocator() noexcept = default;
     explicit StackAllocator(Alloc&& alloc) noexcept;
@@ -119,21 +125,26 @@ class StackAllocator
 
     // Metrics
     size_t free_size() const noexcept;
+
+    struct ExportedAlloc
+    {
+        // Free slots in the block
+        FreeSlotsContainer free_slots;
+
+        // Memory blocks - Optional, only used in export_all and import
+        typename Alloc::BlocksContainer memory_blocks;
+    };
     // Export/import free slots
-    template <class Vec>
-    void export_free(Vec& out) noexcept;
-    template <class Vec>
-    void import_free(Vec&& in);
+    FreeSlotsContainer export_free() noexcept;
+    void import_free(FreeSlotsContainer&& in);
     // Export/import blocks via underlying allocator
-    template <class VecSlots, class VecBlocks>
-    void export_all(VecSlots& out_slots, VecBlocks& out_blocks);
-    template <class VecBlocks>
-    void import_blocks(VecBlocks&& in_blocks);
+    ExportedAlloc export_all();
+    void import_blocks(ExportedAlloc&& in_blocks);
 
     Alloc parent;
 
   private:
-    std::vector<pointer> free_slots;
+    FreeSlotsContainer free_slots;
 };
 
 // CRTP mixin that provides object helpers (construct/destroy, new/delete, make_unique)
@@ -192,7 +203,6 @@ class PoolAllocator : public pool_allocator_detail::ObjectOpsMixin<PoolAllocator
     PoolAllocator(const PoolAllocator<U, BlockSize>& other) = delete;
     PoolAllocator& operator=(const PoolAllocator& other) = delete;
     PoolAllocator& operator=(PoolAllocator&& other) = delete;
-
 
     // Allocation and deallocation are done by allocator
     pointer allocate(size_type n = 1)
@@ -261,15 +271,7 @@ class PoolAllocator : public pool_allocator_detail::ObjectOpsMixin<PoolAllocator
     // Compose a free-list stack allocator over a bump allocator for backing blocks.
     using BumpAlloc = pool_allocator_detail::BumpAllocator<T, std::allocator<T>, BlockSize>;
     using ComboAlloc = pool_allocator_detail::StackAllocator<T, BumpAlloc>;
-    struct ExportedAlloc
-    {
-        // Free slots in the block
-        std::vector<pointer> free_slots;
-
-        // Memory blocks - Optional, only used in export_all and import
-        std::vector<typename BumpAlloc::block_pointer> memory_blocks;
-    };
-
+    using ExportedAlloc = typename ComboAlloc::ExportedAlloc;
     // Allocator import/export functions
     // Export
     //! Export only the available slots as a vector of pointers.
@@ -283,7 +285,7 @@ class PoolAllocator : public pool_allocator_detail::ObjectOpsMixin<PoolAllocator
 
     // Import
     //! Import all memory blocks and free slots from an ExportedAlloc
-    void import(ExportedAlloc exported);
+    void import(ExportedAlloc&& exported);
 
     ComboAlloc allocator; // owns BlockAlloc internally and free list on top
 };
