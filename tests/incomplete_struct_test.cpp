@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <memory>
 #include <pool_allocator/pool_allocator.h>
 
 struct IncompleteStruct;

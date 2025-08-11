@@ -33,120 +33,311 @@
 #include "pool_allocator.h"
 
 #include <limits>
+#include <new> // for std::align_val_t
+
+// ==== pool_allocator_detail helpers: BumpBlock, BumpAllocator, StackAllocator ====
+namespace pool_allocator_detail
+{
+
+template <typename Pointer>
+void
+BumpBlock<Pointer>::init(Pointer start, size_t count)
+{
+    this->next = start;
+    this->end = start + count;
+}
+
+template <typename Pointer>
+void
+BumpBlock<Pointer>::reset() noexcept
+{
+    next = nullptr;
+    end = nullptr;
+}
+
+template <typename Pointer>
+bool
+BumpBlock<Pointer>::empty() const noexcept
+{
+    return next == end;
+}
+
+template <typename Pointer>
+size_t
+BumpBlock<Pointer>::remaining() const noexcept
+{
+    return static_cast<size_t>(end - next);
+}
+
+template <typename Pointer>
+Pointer
+BumpBlock<Pointer>::allocate_one() noexcept
+{
+    if (empty())
+        return nullptr;
+    Pointer p = next;
+    ++next;
+    return p;
+}
+
+template <typename Pointer>
+template <typename Vec>
+void
+BumpBlock<Pointer>::export_remaining(Vec& out)
+{
+    if (empty())
+        return;
+    out.reserve(out.size() + remaining());
+    while (next != end)
+    {
+        out.push_back(next++);
+    }
+    reset();
+}
+
+template <typename T, typename Alloc, size_t BlockSize>
+BumpAllocator<T, Alloc, BlockSize>::BumpAllocator(Alloc&& alloc) noexcept
+    : parent(std::forward<Alloc>(alloc))
+{
+}
+
+template <typename T, typename Alloc, size_t BlockSize>
+typename BumpAllocator<T, Alloc, BlockSize>::pointer
+BumpAllocator<T, Alloc, BlockSize>::allocate(size_t n)
+{
+    if (n != 1)
+        return parent.allocate(n);
+    if (bump.empty())
+    {
+        const size_t count = BlockSize / sizeof(value_type);
+        block_pointer p = parent.allocate(count);
+        blocks.push_back(p);
+        bump.init(p, count);
+    }
+    return bump.allocate_one();
+}
+
+template <typename T, typename Alloc, size_t BlockSize>
+void
+BumpAllocator<T, Alloc, BlockSize>::deallocate(pointer p, size_t n) noexcept
+{
+    if (n != 1)
+        parent.deallocate(p, n);
+}
+
+template <typename T, typename Alloc, size_t BlockSize>
+BumpAllocator<T, Alloc, BlockSize>::~BumpAllocator() noexcept
+{
+    for (auto& block : blocks)
+    {
+        const size_t count = BlockSize / sizeof(value_type);
+        parent.deallocate(block, count);
+    }
+    blocks.clear();
+    bump.reset();
+}
+
+template <typename T, typename Alloc, size_t BlockSize>
+size_t
+BumpAllocator<T, Alloc, BlockSize>::allocated_bytes() const noexcept
+{
+    return blocks.size() * BlockSize;
+}
+
+template <typename T, typename Alloc, size_t BlockSize>
+size_t
+BumpAllocator<T, Alloc, BlockSize>::bump_remaining() const noexcept
+{
+    return bump.remaining();
+}
+
+template <typename T, typename Alloc, size_t BlockSize>
+auto
+BumpAllocator<T, Alloc, BlockSize>::export_all() -> std::pair<FreeSlotsContainer, BlocksContainer>
+{
+    FreeSlotsContainer out_free_slots;
+    out_free_slots.reserve(bump.remaining());
+    bump.export_remaining(out_free_slots);
+
+    BlocksContainer out_blocks;
+    out_blocks.swap(blocks);
+
+    return {std::move(out_free_slots), std::move(out_blocks)};
+}
+
+template <typename T, typename Alloc, size_t BlockSize>
+void
+BumpAllocator<T, Alloc, BlockSize>::import_blocks(BlocksContainer&& in_blocks)
+{
+    blocks.insert(blocks.end(), in_blocks.begin(), in_blocks.end());
+}
+
+template <typename T, typename Alloc>
+StackAllocator<T, Alloc>::StackAllocator(Alloc&& alloc) noexcept
+    : parent(std::forward<Alloc>(alloc))
+{
+}
+
+template <typename T, typename Alloc>
+typename StackAllocator<T, Alloc>::pointer
+StackAllocator<T, Alloc>::allocate(size_t n)
+{
+    if (n != 1)
+        return parent.allocate(n);
+    if (free_slots.empty())
+        return parent.allocate(n);
+    pointer p = free_slots.back();
+    free_slots.pop_back();
+    return p;
+}
+
+template <typename T, typename Alloc>
+void
+StackAllocator<T, Alloc>::deallocate(pointer p, size_t n) noexcept
+{
+    if (n != 1)
+    {
+        parent.deallocate(p, n);
+        return;
+    }
+    free_slots.push_back(p);
+}
+
+template <typename T, typename Alloc>
+size_t
+StackAllocator<T, Alloc>::free_size() const noexcept
+{
+    return free_slots.size();
+}
+
+template <typename T, typename Alloc>
+void
+StackAllocator<T, Alloc>::transfer_free(StackAllocator& from)
+{
+    if (&from == this)
+        return;
+    FreeSlotsContainer tmp;
+    std::swap(tmp, from.free_slots);
+    free_slots.insert(free_slots.end(), tmp.begin(), tmp.end());
+}
+
+template <typename T, typename Alloc>
+void
+StackAllocator<T, Alloc>::transfer_all(StackAllocator& from)
+{
+    if (&from == this)
+        return;
+    // Move free slots first
+    transfer_free(from);
+    // Then export remaining bump slots and blocks from parent and import here
+    auto [fs, blocks] = from.parent.export_all();
+    free_slots.insert(free_slots.end(), fs.begin(), fs.end());
+    parent.import_blocks(std::move(blocks));
+}
+
+// ---- ObjectOpsMixin implementations ----
+template <typename Derived, typename T>
+template <class U, class... Args>
+void
+ObjectOpsMixin<Derived, T>::construct(U* p, Args&&... args)
+{
+    new (p) U(std::forward<Args>(args)...);
+}
+
+template <typename Derived, typename T>
+template <class U>
+void
+ObjectOpsMixin<Derived, T>::destroy(U* p) noexcept
+{
+    p->~U();
+}
+
+template <typename Derived, typename T>
+typename ObjectOpsMixin<Derived, T>::pointer
+ObjectOpsMixin<Derived, T>::new_object()
+{
+    auto* self = static_cast<Derived*>(this);
+    pointer p = self->allocate(1);
+    try
+    {
+        construct(p);
+    }
+    catch (...)
+    {
+        self->deallocate(p, 1);
+        throw;
+    }
+    return p;
+}
+
+template <typename Derived, typename T>
+template <class... Args>
+typename ObjectOpsMixin<Derived, T>::pointer
+ObjectOpsMixin<Derived, T>::new_object(Args&&... args)
+{
+    auto* self = static_cast<Derived*>(this);
+    pointer p = self->allocate(1);
+    try
+    {
+        construct(p, std::forward<Args>(args)...);
+    }
+    catch (...)
+    {
+        self->deallocate(p, 1);
+        throw;
+    }
+    return p;
+}
+
+template <typename Derived, typename T>
+void
+ObjectOpsMixin<Derived, T>::delete_object(pointer p) noexcept
+{
+    auto* self = static_cast<Derived*>(this);
+    destroy(p);
+    self->deallocate(p, 1);
+}
+
+template <typename Derived, typename T>
+template <class Deleter, class... Args>
+std::unique_ptr<T, Deleter>
+ObjectOpsMixin<Derived, T>::make_unique_with(Deleter del, Args&&... args)
+{
+    auto* self = static_cast<Derived*>(this);
+    pointer raw = self->allocate(1);
+    try
+    {
+        construct(raw, std::forward<Args>(args)...);
+    }
+    catch (...)
+    {
+        self->deallocate(raw, 1);
+        throw;
+    }
+    return std::unique_ptr<T, Deleter>(raw, std::move(del));
+}
+
+} // namespace pool_allocator_detail
 
 // Default constructor
 template <typename T, size_t BlockSize>
 PoolAllocator<T, BlockSize>::PoolAllocator() noexcept
 {
-    // Calculate item alignment
-    constexpr size_type items_per_block = BlockSize / sizeof(T);
-    static_assert(items_per_block > 0, "Block size is too small for the type T");
-    this->num_items = items_per_block;
-    this->item_size = sizeof(T);
+    // Check block size vs T size; blocks must hold at least one T
+    static_assert(BlockSize / sizeof(T) > 0, "Block size is too small for the type T");
 }
 
 // Destructor
 template <typename T, size_t BlockSize>
-PoolAllocator<T, BlockSize>::~PoolAllocator() noexcept
-{
-    // Free all memory blocks
-    for (pointer block : memory_blocks)
-    {
-        ::operator delete(block, std::align_val_t(alignof(T)));
-    }
-}
+PoolAllocator<T, BlockSize>::~PoolAllocator() noexcept = default;
 
-// Address functions
-template <typename T, size_t BlockSize>
-typename PoolAllocator<T, BlockSize>::pointer
-PoolAllocator<T, BlockSize>::addressof(reference x) const noexcept
-{
-    return std::addressof(x);
-}
-
-template <typename T, size_t BlockSize>
-typename PoolAllocator<T, BlockSize>::const_pointer
-PoolAllocator<T, BlockSize>::addressof(const_reference x) const noexcept
-{
-    return std::addressof(x);
-}
-
-template <typename T, size_t BlockSize>
-inline ExportedAlloc<T, BlockSize>
-PoolAllocator<T, BlockSize>::_export_free()
-{
-    ExportedAlloc<T, BlockSize> exported;
-    exported.free_slots = std::move(free_slots);
-    // Clear the free slots stack
-    free_slots = std::stack<pointer, std::vector<pointer>>();
-
-    // No memory blocks to export
-    exported.memory_blocks = std::vector<pointer>();
-
-    return exported;
-}
-
-template <typename T, size_t BlockSize>
-ExportedAlloc<T, BlockSize>
-PoolAllocator<T, BlockSize>::_export_all()
-{
-    ExportedAlloc<T, BlockSize> exported;
-    // Before moving the free slots, unwind the partially free bump-allocation block
-    // Add its free slots to the exported free slots
-    if (!memory_blocks.empty() && current_block_slot < num_items)
-    {
-        // Convert the partially free (bump allocated) blocks to free slots
-        for (size_type i = current_block_slot; i < num_items; ++i)
-        {
-            // Push the pointer to the free slots stack
-            exported.free_slots.push(memory_blocks.back() + i);
-        }
-    }
-    // Append existing free slots to the unwinded free slots
-    exported.free_slots.c.insert(exported.free_slots.c.end(), free_slots.c.begin(),
-                                 free_slots.c.end());
-    // Clear the free slots stack
-    free_slots = std::stack<pointer, std::vector<pointer>>();
-
-    // Move memory blocks to the exported struct
-    exported.memory_blocks = std::move(memory_blocks);
-    // Clear the memory blocks (don't free them)
-    memory_blocks = std::vector<pointer>();
-
-    // Reset the current block slot in the allocator
-    current_block_slot = 0;
-
-    return exported;
-}
-
-template <typename T, size_t BlockSize>
-void
-PoolAllocator<T, BlockSize>::_import(ExportedAlloc<T, BlockSize>& exported)
-{
-    // Append the free slots from the exported allocator
-    free_slots.c.insert(free_slots.c.end(), exported.free_slots.begin(), exported.free_slots.end());
-
-    // We don't need to change the current_block_slot here
-    // As the imported allocator's partially free slots are already accounted for during export
-
-    // Append imported memory blocks from the exported allocator
-    memory_blocks.insert(memory_blocks.end(),
-                         std::make_move_iterator(exported.memory_blocks.begin()),
-                         std::make_move_iterator(exported.memory_blocks.end()));
-
-    // Clear the imported memory blocks
-    exported.memory_blocks = std::vector<pointer>();
-}
 
 template <typename T, size_t BlockSize>
 void
 PoolAllocator<T, BlockSize>::transfer_all(PoolAllocator<T, BlockSize>& from)
 {
     assert(&from != this && "Cannot import directly from self");
-
-    // Export and Import the free slots
-    auto exported = from._export_all();
-    _import(exported);
+    allocator.transfer_all(from.allocator);
 }
 
 template <typename T, size_t BlockSize>
@@ -154,121 +345,7 @@ void
 PoolAllocator<T, BlockSize>::transfer_free(PoolAllocator<T, BlockSize>& from)
 {
     assert(&from != this && "Cannot import directly from self");
-
-    // Export and Import the free slots
-    auto exported = from._export_free();
-    _import(exported);
-}
-
-template <typename T, size_t BlockSize>
-void
-PoolAllocator<T, BlockSize>::allocateBlock()
-{
-    // Allocate a new block of memory
-    pointer new_block =
-        reinterpret_cast<pointer>(::operator new(BlockSize, std::align_val_t(alignof(T))));
-
-    // Push the new block to the free blocks stack
-    memory_blocks.push_back(new_block);
-
-    // Reset block counter
-    current_block_slot = 0;
-}
-
-// Allocate a single object
-template <typename T, size_t BlockSize>
-typename PoolAllocator<T, BlockSize>::pointer
-PoolAllocator<T, BlockSize>::allocate(size_type n)
-{
-    // Do nothing if n is 0
-    if (n == 0)
-    {
-        return nullptr;
-    }
-    // For multiple objects, we revert to std::allocator
-    else if (n > 1)
-    {
-        return std::allocator<T>().allocate(n);
-    }
-    // Handle single object allocation
-    else
-    {
-        constexpr size_type items_per_block = BlockSize / sizeof(T);
-
-        // Check free slots first
-        if (!free_slots.empty())
-        {
-            // Pop the top slot from the free slots stack
-            pointer p = free_slots.top();
-            free_slots.pop();
-            return p;
-        }
-        // Check current block slot
-        else if (!memory_blocks.empty() && current_block_slot < items_per_block)
-        {
-            // Increment by 1
-            pointer p = memory_blocks.back() + current_block_slot;
-            current_block_slot++;
-            return p;
-        }
-        // Allocate a new block
-        else
-        {
-            // Allocate a new block of memory
-            allocateBlock();
-            pointer p = memory_blocks.back();
-            // Reset current block slot
-            current_block_slot++; // Start from the first slot
-            // Return the first slot in the new block
-            return p;
-        }
-    }
-}
-
-// Deallocate a single object
-template <typename T, size_t BlockSize>
-void
-PoolAllocator<T, BlockSize>::deallocate(pointer p, size_type n)
-{
-    // Do nothing if n is 0
-    if (n == 0)
-    {
-        return;
-    }
-    // For multiple objects, we revert to std::allocator
-    else if (n > 1)
-    {
-        std::allocator<T>().deallocate(p, n);
-    }
-    // Handle single object deallocation
-    // We push it back to the available slots
-    else
-    {
-        // Push pointer back to free slots stack
-        if (p != nullptr)
-        {
-            free_slots.push(p);
-        }
-    }
-}
-
-// Construct an object in the allocated memory
-template <typename T, size_t BlockSize>
-template <class U, class... Args>
-void
-PoolAllocator<T, BlockSize>::construct(U* p, Args&&... args) noexcept
-{
-    // Use placement new to construct the object in the allocated memory
-    new (p) U(std::forward<Args>(args)...);
-}
-// Destroy an object in the allocated memory
-template <typename T, size_t BlockSize>
-template <class U>
-void
-PoolAllocator<T, BlockSize>::destroy(U* p) noexcept
-{
-    // Call the destructor of the object
-    p->~U();
+    allocator.transfer_free(from.allocator);
 }
 
 // Maximum size of the pool
@@ -298,69 +375,5 @@ template <class... Args>
 inline std::unique_ptr<T, typename PoolAllocator<T, BlockSize>::Deleter>
 PoolAllocator<T, BlockSize>::make_unique(Args&&... args)
 {
-    pointer raw = allocate(1);
-    try
-    {
-        // Construct the object in the allocated memory
-        construct(raw, std::forward<Args>(args)...);
-    }
-    catch (...)
-    {
-        deallocate(raw, 1);
-        throw;
-    }
-    return std::unique_ptr<T, Deleter>(raw, Deleter{this});
-}
-
-// Create a new object in the pool
-// Default constructor
-template <typename T, size_t BlockSize>
-typename PoolAllocator<T, BlockSize>::pointer
-PoolAllocator<T, BlockSize>::new_object()
-{
-    // Allocate a single object
-    pointer p = allocate(1);
-    try
-    {
-        // Construct the object in the allocated memory
-        construct(p);
-    }
-    catch (...)
-    {
-        deallocate(p, 1);
-        throw;
-    }
-    return p;
-}
-
-// Create a new object in the pool with arguments
-template <typename T, size_t BlockSize>
-template <class... Args>
-typename PoolAllocator<T, BlockSize>::pointer
-PoolAllocator<T, BlockSize>::new_object(Args&&... args)
-{
-    // Allocate a single object
-    pointer p = allocate(1);
-    try
-    {
-        // Construct the object in the allocated memory with arguments
-        construct(p, std::forward<Args>(args)...);
-    }
-    catch (...)
-    {
-        deallocate(p, 1);
-        throw;
-    }
-    return p;
-}
-
-// Delete an object in the pool
-template <typename T, size_t BlockSize>
-void
-PoolAllocator<T, BlockSize>::delete_object(pointer p)
-{
-    // Call the destructor of the object
-    destroy(p);
-    // Deallocate the object
-    deallocate(p, 1);
+    return this->template make_unique_with<Deleter>(Deleter{this}, std::forward<Args>(args)...);
 }

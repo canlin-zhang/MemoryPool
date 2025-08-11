@@ -28,33 +28,145 @@
  * 1. Added incomplete struct/class support (forward declaration)
  * 2. Changed block and slot tracking to use std::stack backed by std::vector
  * 3. Added unique_ptr its necessary helper functions
+ * 4. Added transfer_all and transfer_free functions
+ *
+ * Modifed by Eric Norige
+ * Changes:
+ * 1. Separated PoolAllocator logic cleanly into BumpAllocator and StackAllocator
+ * 2. Added [[nodiscard]] to export and raw pointer allocation functions
  */
 
-#include <algorithm>
 #include <cassert>
-#include <climits>
 #include <cstddef>
-#include <cstdlib>
-#include <iostream>
+#include <iterator>
 #include <memory>
-#include <stack>
+#include <utility>
 #include <vector>
 
-template <typename T, size_t BlockSize>
-struct ExportedAlloc
+// Internal helper for lazy bump allocation of a single contiguous block
+namespace pool_allocator_detail
 {
-    using pointer = T*;
-    using size_type = std::size_t;
+template <typename Pointer>
+struct BumpBlock
+{
+    void init(Pointer start, size_t count);
+    void reset() noexcept;
+    bool empty() const noexcept;
+    size_t remaining() const noexcept;
+    Pointer allocate_one() noexcept;
+    // Move any remaining slots into a free list vector and reset.
+    template <typename Vec>
+    void export_remaining(Vec& out);
 
-    // Free slots in the block
-    std::stack<pointer, std::vector<pointer>> free_slots;
-
-    // Memory blocks - Optional, only used in _export_all and _import
-    std::vector<pointer> memory_blocks;
+  private:
+    Pointer next = nullptr; // next un-split slot
+    Pointer end = nullptr;  // one-past-the-last slot in the current block
 };
 
+//! A basic bump allocator; uses an underlying allocator to allocate blocks and
+//! bumps a pointer within that block to provide allocations.  Doesn't handle deallocations at all,
+//! so is best wrapped in StackAllocator.
+template <typename T, typename Alloc = std::allocator<T>, size_t BlockSize = 4096>
+class BumpAllocator
+{
+  public:
+    /* Member types */
+    using value_type = T;
+    using pointer = T*;
+    using block_pointer = T*;
+    using BlocksContainer = std::vector<block_pointer>;
+    using FreeSlotsContainer = std::vector<pointer>;
+
+    BumpAllocator() noexcept = default;
+    BumpAllocator(const BumpAllocator&) = delete;
+    BumpAllocator(BumpAllocator&&) noexcept = default;
+    BumpAllocator& operator=(const BumpAllocator&) = delete;
+    BumpAllocator& operator=(BumpAllocator&&) noexcept = default;
+    explicit BumpAllocator(Alloc&& alloc) noexcept;
+
+    [[nodiscard]] pointer allocate(size_t n = 1);
+    void deallocate(pointer p, size_t n = 1) noexcept;
+
+    ~BumpAllocator() noexcept;
+    // Metrics
+    size_t allocated_bytes() const noexcept;
+    size_t bump_remaining() const noexcept;
+    // Export: move remaining bump slots to free list and move blocks out.
+    // New overload that returns the exported value.
+    [[nodiscard]] std::pair<FreeSlotsContainer, BlocksContainer> export_all();
+    // Import: take ownership of blocks (for accounting and destruction). Bump remains empty.
+    void import_blocks(BlocksContainer&& in_blocks);
+
+    Alloc parent;
+
+  private:
+    BumpBlock<pointer> bump;
+    BlocksContainer blocks;
+};
+
+//! Wraps another allocator with a stack so that single deallocations
+//! can be easily returned as single allocations.
+template <typename T, typename Alloc = std::allocator<T>>
+class StackAllocator
+{
+  public:
+    using value_type = T;
+    using pointer = value_type*;
+    using FreeSlotsContainer = std::vector<pointer>;
+
+    StackAllocator() noexcept = default;
+    explicit StackAllocator(Alloc&& alloc) noexcept;
+    StackAllocator(const StackAllocator&) = delete;
+    StackAllocator(StackAllocator&&) noexcept = default;
+    StackAllocator& operator=(const StackAllocator&) = delete;
+    StackAllocator& operator=(StackAllocator&&) noexcept = default;
+
+    [[nodiscard]] pointer allocate(size_t n = 1);
+
+    void deallocate(pointer p, size_t n = 1) noexcept;
+
+    // Metrics
+    size_t free_size() const noexcept;
+
+    // Transfer APIs
+    void transfer_free(StackAllocator& from);
+    void transfer_all(StackAllocator& from);
+
+    Alloc parent;
+
+  private:
+    FreeSlotsContainer free_slots;
+};
+
+// CRTP mixin that provides object helpers (construct/destroy, new/delete, make_unique)
+// to any Derived that implements allocate(n) and deallocate(ptr, n).
+template <typename Derived, typename T>
+class ObjectOpsMixin
+{
+  public:
+    using value_type = T;
+    using pointer = T*;
+
+    template <class U, class... Args>
+    static void construct(U* p, Args&&... args);
+    template <class U>
+    static void destroy(U* p) noexcept;
+
+    [[nodiscard]] pointer new_object();
+    template <class... Args>
+    [[nodiscard]] pointer new_object(Args&&... args);
+    void delete_object(pointer p) noexcept;
+
+    template <class Deleter, class... Args>
+    [[nodiscard]] std::unique_ptr<value_type, Deleter> make_unique_with(Deleter del,
+                                                                        Args&&... args);
+};
+
+} // namespace pool_allocator_detail
+
+// PoolAllocator combines a bump allocator with a stack allocator
 template <typename T, size_t BlockSize = 4096>
-class PoolAllocator
+class PoolAllocator : public pool_allocator_detail::ObjectOpsMixin<PoolAllocator<T, BlockSize>, T>
 {
   public:
     /* Member types */
@@ -72,47 +184,28 @@ class PoolAllocator
     using propagate_on_container_swap = std::true_type;
     using is_always_equal = std::false_type;
 
-    // /* Legacy Rebind struct */
-    // template <typename U>
-    // struct rebind
-    // {
-    //     typedef PoolAllocator<U, BlockSize> other;
-    // };
-
     /* Member functions */
-    // Default constructor
     PoolAllocator() noexcept;
-    // No Copy constructor
+    ~PoolAllocator() noexcept;
+    // No Copy/move
     PoolAllocator(const PoolAllocator& other) = delete;
-    // No Move constructor
     PoolAllocator(PoolAllocator&& other) = delete;
-    // No Templated copy
     template <class U>
     PoolAllocator(const PoolAllocator<U, BlockSize>& other) = delete;
-    // Destructor
-    ~PoolAllocator() noexcept;
-
-    // Assignment operator
-    // We do not allow copy assignment for allocators
     PoolAllocator& operator=(const PoolAllocator& other) = delete;
-    // We do not allow move assignment for allocators
     PoolAllocator& operator=(PoolAllocator&& other) = delete;
 
-    // Address functions
-    pointer addressof(reference x) const noexcept;
-    const_pointer addressof(const_reference x) const noexcept;
+    // Allocation and deallocation are done by allocator
+    pointer allocate(size_type n = 1)
+    {
+        return allocator.allocate(n);
+    }
+    void deallocate(pointer p, size_type n = 1) noexcept
+    {
+        allocator.deallocate(p, n);
+    }
 
-    // Allocation and deallocation
-    pointer allocate(size_type n = 1);
-    void deallocate(pointer p, size_type n = 1);
-
-    // Construct and destory functions
-    template <class U, class... Args>
-    void construct(U* p, Args&&... args) noexcept;
-    template <class U>
-    void destroy(U* p) noexcept;
-
-    // Maximum size of the pool
+    // Maximum size of an allocation from this pool
     size_type max_size() const noexcept;
 
     // Unique pointer support
@@ -120,6 +213,8 @@ class PoolAllocator
     struct Deleter
     {
         // Pool address so we know which pool to use for deletion
+        // If a global memory pool is used, user can implement a deleter that doesn't increase size
+        // of unique_ptr
         PoolAllocator* allocator = nullptr;
         template <typename U>
         void operator()(U* ptr) const noexcept;
@@ -129,28 +224,33 @@ class PoolAllocator
     template <class... Args>
     std::unique_ptr<T, Deleter> make_unique(Args&&... args);
 
-    // Create new object with empty constructor
-    pointer new_object();
-
-    // Create new object with arguments
-    template <class... Args>
-    pointer new_object(Args&&... args);
-
-    // Delete an object
-    void delete_object(pointer p);
+    // functions provided by ObjectOpsMixin
+    // template <class U, class... Args>
+    // void construct(U* p, Args&&... args);
+    // template <class U>
+    // void destroy(U* p) noexcept;
+    // [[nodiscard]] pointer new_object();
+    // template <class... Args>
+    // [[nodiscard]] pointer new_object(Args&&... args);
+    // void delete_object(pointer p) noexcept;
 
     // Debug helper functions
     // Get total allocated size
-    inline size_type total_allocated_size() const noexcept
+    inline size_type allocated_bytes() const noexcept
     {
-        return memory_blocks.size() * BlockSize;
+        return allocator.parent.allocated_bytes();
     }
 
-    // Get total number of free slots
-    // Does not account for partial blocks
-    inline size_type total_free_slots() const noexcept
+    // Get total number of free slots in StackAllocator
+    inline size_type num_slots_available() const noexcept
     {
-        return free_slots.size();
+        return allocator.free_size();
+    }
+
+    // Get number of slots in BumpBlock of BumpAllocator
+    inline size_type num_bump_available() const noexcept
+    {
+        return allocator.parent.bump_remaining();
     }
 
     // Transfer free slots from another allocator
@@ -159,34 +259,12 @@ class PoolAllocator
     void transfer_all(PoolAllocator<T, BlockSize>& from);
 
   private:
-    // Allocate a memory block
-    void allocateBlock();
+    // Compose a free-list stack allocator over a bump allocator for backing blocks.
+    using BumpAlloc = pool_allocator_detail::BumpAllocator<T, std::allocator<T>, BlockSize>;
+    using ComboAlloc = pool_allocator_detail::StackAllocator<T, BumpAlloc>;
 
-    // Allocator import/export functions
-    // Export
-    //! Export only the available slots as a vector of pointers.
-    //! Warning: This does NOT transfer ownership of the underlying memory blocks.
-    //! Do NOT use this function in threads with shorter lifetimes than other threads
-    //! accessing objects backed by this allocator. Doing so may lead to use-after-free.
-    ExportedAlloc<T, BlockSize> _export_free();
-
-    //! Export all the memory blocks + available slots
-    ExportedAlloc<T, BlockSize> _export_all();
-
-    // Import
-    //! Import all memory blocks and free slots from an ExportedAlloc
-    void _import(ExportedAlloc<T, BlockSize>& exported);
-
-    // Pointer to blocks of memory
-    std::vector<pointer> memory_blocks;
-    size_type current_block_slot = 0; // Current slot in the current block
-
-    // Free list
-    std::stack<pointer, std::vector<pointer>> free_slots;
-
-    // Number of items in one block (will be set by the constructor only)
-    size_type num_items;
-    size_type item_size;
+    // No explicit export/import API; transfer functions call underlying allocator ops directly
+    ComboAlloc allocator; // owns BlockAlloc internally and free list on top
 };
 
 // Operators
@@ -206,4 +284,4 @@ operator!=(const PoolAllocator<T, BlockSize>& a, const PoolAllocator<T, BlockSiz
 }
 
 // include the implementation file
-#include "pool_allocator.tcc"
+#include "pool_allocator.tcc" // IWYU pragma: export
