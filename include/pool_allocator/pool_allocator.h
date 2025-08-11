@@ -88,12 +88,8 @@ class BumpAllocator
     // Export: move remaining bump slots to free list and move blocks out.
     // New overload that returns the exported value.
     [[nodiscard]] std::pair<FreeSlotsContainer, BlocksContainer> export_all();
-    // // Backward-compatible overload that fills the provided containers.
-    // template <class VecSlots, class VecBlocks>
-    // void export_all(VecSlots& out_free_slots, VecBlocks& out_blocks);
     // Import: take ownership of blocks (for accounting and destruction). Bump remains empty.
-    template <class VecBlocks>
-    void import_blocks(VecBlocks&& in_blocks);
+    void import_blocks(BlocksContainer&& in_blocks);
 
     Alloc parent;
 
@@ -126,20 +122,9 @@ class StackAllocator
     // Metrics
     size_t free_size() const noexcept;
 
-    struct ExportedAlloc
-    {
-        // Free slots in the block
-        FreeSlotsContainer free_slots;
-
-        // Memory blocks - Optional, only used in export_all and import
-        typename Alloc::BlocksContainer memory_blocks;
-    };
-    // Export/import free slots
-    FreeSlotsContainer export_free() noexcept;
-    void import_free(FreeSlotsContainer&& in);
-    // Export/import blocks via underlying allocator
-    ExportedAlloc export_all();
-    void import_blocks(ExportedAlloc&& in_blocks);
+    // Transfer APIs
+    void transfer_free(StackAllocator& from);
+    void transfer_all(StackAllocator& from);
 
     Alloc parent;
 
@@ -271,22 +256,8 @@ class PoolAllocator : public pool_allocator_detail::ObjectOpsMixin<PoolAllocator
     // Compose a free-list stack allocator over a bump allocator for backing blocks.
     using BumpAlloc = pool_allocator_detail::BumpAllocator<T, std::allocator<T>, BlockSize>;
     using ComboAlloc = pool_allocator_detail::StackAllocator<T, BumpAlloc>;
-    using ExportedAlloc = typename ComboAlloc::ExportedAlloc;
-    // Allocator import/export functions
-    // Export
-    //! Export only the available slots as a vector of pointers.
-    //! Warning: This does NOT transfer ownership of the underlying memory blocks.
-    //! Do NOT use this function in threads with shorter lifetimes than other threads
-    //! accessing objects backed by this allocator. Doing so may lead to use-after-free.
-    ExportedAlloc export_free();
 
-    //! Export all the memory blocks + available slots
-    ExportedAlloc export_all();
-
-    // Import
-    //! Import all memory blocks and free slots from an ExportedAlloc
-    void import(ExportedAlloc&& exported);
-
+    // No explicit export/import API; transfer functions call underlying allocator ops directly
     ComboAlloc allocator; // owns BlockAlloc internally and free list on top
 };
 
