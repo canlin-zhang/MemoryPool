@@ -90,8 +90,8 @@ class BumpAllocator
     template <class VecBlocks>
     void import_blocks(VecBlocks&& in_blocks);
 
+    Alloc parent;
   private:
-    Alloc block_source;
     BumpBlock<pointer> bump;
     std::vector<block_pointer> blocks;
 };
@@ -131,8 +131,8 @@ class StackAllocator
     template <class VecBlocks>
     void import_blocks(VecBlocks&& in_blocks);
 
+    Alloc parent;
   private:
-    Alloc slot_source;
     std::vector<pointer> free_slots;
 };
 
