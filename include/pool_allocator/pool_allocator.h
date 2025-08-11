@@ -28,6 +28,12 @@
  * 1. Added incomplete struct/class support (forward declaration)
  * 2. Changed block and slot tracking to use std::stack backed by std::vector
  * 3. Added unique_ptr its necessary helper functions
+ * 4. Added transfer_all and transfer_free functions
+ *
+ * Modifed by Eric Norige
+ * Changes:
+ * 1. Separated PoolAllocator logic cleanly into BumpAllocator and StackAllocator
+ * 2. Added [[nodiscard]] to export and raw pointer allocation functions
  */
 
 #include <cassert>
