@@ -118,8 +118,6 @@ class StackAllocator
 
     // Metrics
     size_t free_size() const noexcept;
-    size_t underlying_allocated_bytes() const noexcept;
-    size_t underlying_bump_remaining() const noexcept;
     // Export/import free slots
     template <class Vec>
     void export_free(Vec& out) noexcept;
@@ -226,20 +224,19 @@ class PoolAllocator
     // Get total allocated size
     inline size_type allocated_bytes() const noexcept
     {
-        return allocator.underlying_allocated_bytes();
+        return allocator.parent.allocated_bytes();
     }
 
-    // Get total number of free slots
-    // Does not account for partial blocks
+    // Get total number of free slots in StackAllocator
     inline size_type num_slots_available() const noexcept
     {
         return allocator.free_size();
     }
 
-    // Get number of slots in bump allocator
+    // Get number of slots in BumpBlock of BumpAllocator
     inline size_type num_bump_available() const noexcept
     {
-        return allocator.underlying_bump_remaining();
+        return allocator.parent.bump_remaining();
     }
 
     // Transfer free slots from another allocator

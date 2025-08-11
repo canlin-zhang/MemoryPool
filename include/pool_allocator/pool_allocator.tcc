@@ -175,18 +175,6 @@ template <typename T, typename Alloc>
 size_t StackAllocator<T, Alloc>::free_size() const noexcept { return free_slots.size(); }
 
 template <typename T, typename Alloc>
-size_t StackAllocator<T, Alloc>::underlying_allocated_bytes() const noexcept
-{
-    return parent.allocated_bytes();
-}
-
-template <typename T, typename Alloc>
-size_t StackAllocator<T, Alloc>::underlying_bump_remaining() const noexcept
-{
-    return parent.bump_remaining();
-}
-
-template <typename T, typename Alloc>
 template <class Vec>
 void StackAllocator<T, Alloc>::export_free(Vec& out) noexcept
 {
