@@ -242,6 +242,88 @@ StackAllocator<T, Alloc>::import_blocks(VecBlocks&& in_blocks)
     parent.import_blocks(std::forward<VecBlocks>(in_blocks));
 }
 
+// ---- ObjectOpsMixin implementations ----
+template <typename Derived, typename T>
+template <class U, class... Args>
+void
+ObjectOpsMixin<Derived, T>::construct(U* p, Args&&... args)
+{
+    new (p) U(std::forward<Args>(args)...);
+}
+
+template <typename Derived, typename T>
+template <class U>
+void
+ObjectOpsMixin<Derived, T>::destroy(U* p) noexcept
+{
+    p->~U();
+}
+
+template <typename Derived, typename T>
+typename ObjectOpsMixin<Derived, T>::pointer
+ObjectOpsMixin<Derived, T>::new_object()
+{
+    auto* self = static_cast<Derived*>(this);
+    pointer p = self->allocate(1);
+    try
+    {
+        construct(p);
+    }
+    catch (...)
+    {
+        self->deallocate(p, 1);
+        throw;
+    }
+    return p;
+}
+
+template <typename Derived, typename T>
+template <class... Args>
+typename ObjectOpsMixin<Derived, T>::pointer
+ObjectOpsMixin<Derived, T>::new_object(Args&&... args)
+{
+    auto* self = static_cast<Derived*>(this);
+    pointer p = self->allocate(1);
+    try
+    {
+        construct(p, std::forward<Args>(args)...);
+    }
+    catch (...)
+    {
+        self->deallocate(p, 1);
+        throw;
+    }
+    return p;
+}
+
+template <typename Derived, typename T>
+void
+ObjectOpsMixin<Derived, T>::delete_object(pointer p) noexcept
+{
+    auto* self = static_cast<Derived*>(this);
+    destroy(p);
+    self->deallocate(p, 1);
+}
+
+template <typename Derived, typename T>
+template <class Deleter, class... Args>
+std::unique_ptr<T, Deleter>
+ObjectOpsMixin<Derived, T>::make_unique_with(Deleter del, Args&&... args)
+{
+    auto* self = static_cast<Derived*>(this);
+    pointer raw = self->allocate(1);
+    try
+    {
+        construct(raw, std::forward<Args>(args)...);
+    }
+    catch (...)
+    {
+        self->deallocate(raw, 1);
+        throw;
+    }
+    return std::unique_ptr<T, Deleter>(raw, std::move(del));
+}
+
 } // namespace pool_allocator_detail
 
 // Default constructor
@@ -306,25 +388,6 @@ PoolAllocator<T, BlockSize>::transfer_free(PoolAllocator<T, BlockSize>& from)
     this->import(from.export_free());
 }
 
-// Construct an object in the allocated memory
-template <typename T, size_t BlockSize>
-template <class U, class... Args>
-void
-PoolAllocator<T, BlockSize>::construct(U* p, Args&&... args)
-{
-    // Use placement new to construct the object in the allocated memory
-    new (p) U(std::forward<Args>(args)...);
-}
-// Destroy an object in the allocated memory
-template <typename T, size_t BlockSize>
-template <class U>
-void
-PoolAllocator<T, BlockSize>::destroy(U* p) noexcept
-{
-    // Call the destructor of the object
-    p->~U();
-}
-
 // Maximum size of the pool
 template <typename T, size_t BlockSize>
 typename PoolAllocator<T, BlockSize>::size_type
@@ -352,69 +415,5 @@ template <class... Args>
 inline std::unique_ptr<T, typename PoolAllocator<T, BlockSize>::Deleter>
 PoolAllocator<T, BlockSize>::make_unique(Args&&... args)
 {
-    pointer raw = allocate(1);
-    try
-    {
-        // Construct the object in the allocated memory
-        construct(raw, std::forward<Args>(args)...);
-    }
-    catch (...)
-    {
-        deallocate(raw, 1);
-        throw;
-    }
-    return std::unique_ptr<T, Deleter>(raw, Deleter{this});
-}
-
-// Create a new object in the pool
-// Default constructor
-template <typename T, size_t BlockSize>
-typename PoolAllocator<T, BlockSize>::pointer
-PoolAllocator<T, BlockSize>::new_object()
-{
-    // Allocate a single object
-    pointer p = allocate(1);
-    try
-    {
-        // Construct the object in the allocated memory
-        construct(p);
-    }
-    catch (...)
-    {
-        deallocate(p, 1);
-        throw;
-    }
-    return p;
-}
-
-// Create a new object in the pool with arguments
-template <typename T, size_t BlockSize>
-template <class... Args>
-typename PoolAllocator<T, BlockSize>::pointer
-PoolAllocator<T, BlockSize>::new_object(Args&&... args)
-{
-    // Allocate a single object
-    pointer p = allocate(1);
-    try
-    {
-        // Construct the object in the allocated memory with arguments
-        construct(p, std::forward<Args>(args)...);
-    }
-    catch (...)
-    {
-        deallocate(p, 1);
-        throw;
-    }
-    return p;
-}
-
-// Delete an object in the pool
-template <typename T, size_t BlockSize>
-void
-PoolAllocator<T, BlockSize>::delete_object(pointer p) noexcept
-{
-    // Call the destructor of the object
-    destroy(p);
-    // Deallocate the object
-    deallocate(p, 1);
+    return this->template make_unique_with<Deleter>(Deleter{this}, std::forward<Args>(args)...);
 }

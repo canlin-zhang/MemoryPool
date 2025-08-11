@@ -76,7 +76,7 @@ class BumpAllocator
     BumpAllocator& operator=(BumpAllocator&&) noexcept = default;
     explicit BumpAllocator(Alloc&& alloc) noexcept;
 
-    pointer allocate(size_t n = 1);
+    [[nodiscard]] pointer allocate(size_t n = 1);
     void deallocate(pointer p, size_t n = 1) noexcept;
 
     ~BumpAllocator() noexcept;
@@ -113,7 +113,7 @@ class StackAllocator
     StackAllocator& operator=(const StackAllocator&) = delete;
     StackAllocator& operator=(StackAllocator&&) noexcept = default;
 
-    pointer allocate(size_t n = 1);
+    [[nodiscard]] pointer allocate(size_t n = 1);
 
     void deallocate(pointer p, size_t n = 1) noexcept;
 
@@ -136,11 +136,35 @@ class StackAllocator
     std::vector<pointer> free_slots;
 };
 
+// CRTP mixin that provides object helpers (construct/destroy, new/delete, make_unique)
+// to any Derived that implements allocate(n) and deallocate(ptr, n).
+template <typename Derived, typename T>
+class ObjectOpsMixin
+{
+  public:
+    using value_type = T;
+    using pointer = T*;
+
+    template <class U, class... Args>
+    static void construct(U* p, Args&&... args);
+    template <class U>
+    static void destroy(U* p) noexcept;
+
+    [[nodiscard]] pointer new_object();
+    template <class... Args>
+    [[nodiscard]] pointer new_object(Args&&... args);
+    void delete_object(pointer p) noexcept;
+
+    template <class Deleter, class... Args>
+    [[nodiscard]] std::unique_ptr<value_type, Deleter> make_unique_with(Deleter del,
+                                                                        Args&&... args);
+};
+
 } // namespace pool_allocator_detail
 
 // PoolAllocator combines a bump allocator with a stack allocator
 template <typename T, size_t BlockSize = 4096>
-class PoolAllocator
+class PoolAllocator : public pool_allocator_detail::ObjectOpsMixin<PoolAllocator<T, BlockSize>, T>
 {
   public:
     /* Member types */
@@ -159,23 +183,16 @@ class PoolAllocator
     using is_always_equal = std::false_type;
 
     /* Member functions */
-    // Default constructor
     PoolAllocator() noexcept;
-    // No Copy constructor
+    ~PoolAllocator() noexcept;
+    // No Copy/move
     PoolAllocator(const PoolAllocator& other) = delete;
-    // No Move constructor
     PoolAllocator(PoolAllocator&& other) = delete;
-    // No Templated copy
     template <class U>
     PoolAllocator(const PoolAllocator<U, BlockSize>& other) = delete;
-    // Destructor
-    ~PoolAllocator() noexcept;
-
-    // Assignment operator
-    // We do not allow copy assignment for allocators
     PoolAllocator& operator=(const PoolAllocator& other) = delete;
-    // We do not allow move assignment for allocators
     PoolAllocator& operator=(PoolAllocator&& other) = delete;
+
 
     // Allocation and deallocation are done by allocator
     pointer allocate(size_type n = 1)
@@ -189,12 +206,6 @@ class PoolAllocator
 
     // Maximum size of an allocation from this pool
     size_type max_size() const noexcept;
-
-    // Construct and destory functions
-    template <class U, class... Args>
-    void construct(U* p, Args&&... args);
-    template <class U>
-    void destroy(U* p) noexcept;
 
     // Unique pointer support
     // Deleter
@@ -212,15 +223,15 @@ class PoolAllocator
     template <class... Args>
     std::unique_ptr<T, Deleter> make_unique(Args&&... args);
 
-    // Create new object with empty constructor
-    [[nodiscard]] pointer new_object();
-
-    // Create new object with arguments
-    template <class... Args>
-    [[nodiscard]] pointer new_object(Args&&... args);
-
-    // Delete an object
-    void delete_object(pointer p) noexcept;
+    // functions provided by ObjectOpsMixin
+    // template <class U, class... Args>
+    // void construct(U* p, Args&&... args);
+    // template <class U>
+    // void destroy(U* p) noexcept;
+    // [[nodiscard]] pointer new_object();
+    // template <class... Args>
+    // [[nodiscard]] pointer new_object(Args&&... args);
+    // void delete_object(pointer p) noexcept;
 
     // Debug helper functions
     // Get total allocated size
