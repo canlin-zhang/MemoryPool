@@ -128,11 +128,12 @@ BumpAllocator<T, Alloc, BlockSize>::deallocate(pointer p, size_t n) noexcept
 template <typename T, typename Alloc, size_t BlockSize>
 BumpAllocator<T, Alloc, BlockSize>::~BumpAllocator() noexcept
 {
-    for (auto& block : blocks)
-    {
-        const size_t count = BlockSize / sizeof(value_type);
-        parent.deallocate(block, count);
-    }
+    // Disable this to fix problems with allocation in one thread needing migration to another
+    // thread for (auto& block : blocks)
+    // {
+    //     const size_t count = BlockSize / sizeof(value_type);
+    //     parent.deallocate(block, count);
+    // }
     blocks.clear();
     bump.reset();
 }
@@ -330,7 +331,6 @@ PoolAllocator<T, BlockSize>::PoolAllocator() noexcept
 // Destructor
 template <typename T, size_t BlockSize>
 PoolAllocator<T, BlockSize>::~PoolAllocator() noexcept = default;
-
 
 template <typename T, size_t BlockSize>
 void
