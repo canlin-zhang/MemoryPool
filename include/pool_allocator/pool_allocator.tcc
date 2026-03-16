@@ -337,6 +337,7 @@ void
 PoolAllocator<T, BlockSize>::transfer_all(PoolAllocator<T, BlockSize>& from)
 {
     assert(&from != this && "Cannot import directly from self");
+    std::lock_guard<std::mutex> lock(transfer_mutex);
     allocator.transfer_all(from.allocator);
 }
 
@@ -345,6 +346,7 @@ void
 PoolAllocator<T, BlockSize>::transfer_free(PoolAllocator<T, BlockSize>& from)
 {
     assert(&from != this && "Cannot import directly from self");
+    std::lock_guard<std::mutex> lock(transfer_mutex);
     allocator.transfer_free(from.allocator);
 }
 

@@ -40,6 +40,7 @@
 #include <cstddef>
 #include <iterator>
 #include <memory>
+#include <mutex>
 #include <utility>
 #include <vector>
 
@@ -253,9 +254,14 @@ class PoolAllocator : public pool_allocator_detail::ObjectOpsMixin<PoolAllocator
         return allocator.parent.bump_remaining();
     }
 
-    // Transfer free slots from another allocator
+    // Transfer free slots from another allocator.
+    // Locks this allocator's mutex (destination). The caller must be the owning
+    // thread of `from` (source) — no lock is taken on the source.
     void transfer_free(PoolAllocator<T, BlockSize>& from);
-    // Transfer all memory blocks and free slots from another allocator
+
+    // Transfer all memory blocks and free slots from another allocator.
+    // Locks this allocator's mutex (destination). The caller must be the owning
+    // thread of `from` (source) — no lock is taken on the source.
     void transfer_all(PoolAllocator<T, BlockSize>& from);
 
   private:
@@ -265,6 +271,11 @@ class PoolAllocator : public pool_allocator_detail::ObjectOpsMixin<PoolAllocator
 
     // No explicit export/import API; transfer functions call underlying allocator ops directly
     ComboAlloc allocator; // owns BlockAlloc internally and free list on top
+
+    // Mutex protecting this allocator as a transfer destination.
+    // Only locked by transfer_all/transfer_free on the destination side;
+    // the source is assumed to be accessed only by its owning thread.
+    mutable std::mutex transfer_mutex;
 };
 
 // Operators
