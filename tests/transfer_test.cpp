@@ -160,23 +160,17 @@ TEST_F(TransferTest, TransferFreeMovesOnlyFreeSlots)
         allocator.deallocate(ptrs[static_cast<size_t>(i)]);
     EXPECT_EQ(allocator.num_slots_available(), NUM_FREE);
 
-    const auto pred = AllocatorPrediction().alloc(NUM_ALLOC);
-    EXPECT_EQ(allocator.allocated_bytes(), pred.bytes());
+    const auto pred_src = AllocatorPrediction().alloc(NUM_ALLOC).dealloc(NUM_FREE);
+    EXPECT_EQ(pred_src, AllocatorPrediction::of_ta(allocator));
 
     TestAlloc dest;
-    EXPECT_EQ(dest.allocated_bytes(), 0);
-    EXPECT_EQ(dest.num_slots_available(), 0);
 
     // Transfer only free slots
     ASSERT_NO_THROW(dest.transfer_free(allocator));
 
-    // Source keeps its blocks; free list emptied
-    EXPECT_EQ(allocator.allocated_bytes(), pred.bytes());
-    EXPECT_EQ(allocator.num_slots_available(), 0);
-
-    // Dest gets only the free slots; no blocks moved
-    EXPECT_EQ(dest.allocated_bytes(), 0);
-    EXPECT_EQ(dest.num_slots_available(), NUM_FREE);
+    auto [to, from] = transfer_pool({AllocatorPrediction(), pred_src});
+    EXPECT_EQ(from, AllocatorPrediction::of_ta(allocator));
+    EXPECT_EQ(to, AllocatorPrediction::of_ta(dest));
 
     // Allocating from dest consumes transferred free slots
     std::vector<int*> got;
