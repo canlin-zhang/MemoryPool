@@ -82,7 +82,8 @@ TEST_F(PoolAllocatorTest, basic_type_multiple_allocation)
 // Type whose constructor always throws — used to test exception-safety paths
 struct ThrowingType
 {
-    ThrowingType()
+    ThrowingType() : ThrowingType(0) {}
+    ThrowingType(int)
     {
         throw std::runtime_error("intentional");
     }
@@ -91,7 +92,10 @@ struct ThrowingType
 TEST_F(PoolAllocatorTest, new_object_cleans_up_on_constructor_throw)
 {
     PoolAllocator<ThrowingType> pool;
+    // No-arg overload
     EXPECT_THROW(static_cast<void>(pool.new_object()), std::runtime_error);
+    // Variadic-args overload
+    EXPECT_THROW(static_cast<void>(pool.new_object(42)), std::runtime_error);
     // Pool should be usable after the failed allocation
     EXPECT_NO_THROW(pool.allocate());
 }
