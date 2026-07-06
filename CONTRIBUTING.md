@@ -61,7 +61,7 @@ All PRs and pushes to `master` trigger CI via GitHub Actions:
 | Workflow | What it does |
 |----------|-------------|
 | **CMake on multiple platforms** | Builds and runs tests on Ubuntu (gcc, clang) and Windows (MSVC) with ASAN + UBSAN |
-| **Coverage** | Builds with coverage instrumentation, runs tests, uploads to Codecov |
+| **Coverage** | Builds with coverage instrumentation, runs tests, uploads report as artifact |
 
 CI must pass before merging.
 

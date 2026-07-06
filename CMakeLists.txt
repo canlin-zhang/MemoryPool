@@ -83,7 +83,7 @@ if(ENABLE_COVERAGE)
       COMMAND ${CMAKE_COMMAND} --build . --target all
       COMMAND ctest --output-on-failure
       COMMAND ${LCOV_EXEC} --capture --directory ${CMAKE_BINARY_DIR} --output-file coverage.info --ignore-errors gcov,gcov --ignore-errors mismatch,mismatch
-      COMMAND ${LCOV_EXEC} --remove coverage.info '/usr/*' --output-file coverage.filtered.info
+      COMMAND ${LCOV_EXEC} --remove coverage.info '/usr/*' --output-file coverage.filtered.info --ignore-errors unused
       COMMAND ${GENHTML_EXEC} coverage.filtered.info --output-directory coverage-report
       WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
       COMMENT "Generating code coverage report"

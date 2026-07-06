@@ -91,13 +91,13 @@ cmake/
 └── MemoryPoolConfig.cmake         # Installed CMake package config
 .github/workflows/
 ├── cmake-multi-platform.yml       # CI: Ubuntu (gcc, clang) + Windows (MSVC), ASAN+UBSAN
-└── coverage.yml                   # CI: lcov → Codecov
+└── coverage.yml                   # CI: lcov → HTML report artifact
 ```
 
 ## CI
 
 - PRs and pushes to `master` trigger multi-platform build+test with ASAN and UBSAN
-- Coverage workflow uploads to Codecov (requires `CODECOV_TOKEN` secret)
+- Coverage workflow uploads HTML report as a build artifact
 - Both workflows ignore `**.md` changes via `paths-ignore`
 
 ## Sanitizer Options

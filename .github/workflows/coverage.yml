@@ -2,11 +2,11 @@ name: Coverage
 
 on:
   push:
-    branches: [ main ]
+    branches: [ "master" ]
     paths-ignore:
       - '**.md'
   pull_request:
-    branches: [ main ]
+    branches: [ "master" ]
     paths-ignore:
       - '**.md'
   workflow_dispatch:
@@ -41,9 +41,10 @@ jobs:
           name: coverage-report
           path: build/coverage-report
 
-      - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: build/coverage.info
-          fail_ci_if_error: true
+      # TODO: re-enable once CODECOV_TOKEN secret is configured
+      # - name: Upload coverage reports to Codecov
+      #   uses: codecov/codecov-action@v5
+      #   with:
+      #     token: ${{ secrets.CODECOV_TOKEN }}
+      #     files: build/coverage.info
+      #     fail_ci_if_error: true
