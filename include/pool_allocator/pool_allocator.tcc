@@ -317,6 +317,33 @@ ObjectOpsMixin<Derived, T>::make_unique_with(Deleter del, Args&&... args)
     return std::unique_ptr<T, Deleter>(raw, std::move(del));
 }
 
+// Debug-only reentrancy tripwire for a transfer participant. In a debug build
+// the constructor marks the instance (atomic exchange) and asserts it was not
+// already marked, and the destructor clears it, so two overlapping transfers on
+// a shared instance trip the assert. The exchange lives inside assert(), so
+// under NDEBUG the constructor does nothing and only the destructor's
+// store(false) remains -- a no-op on an always-false flag. Transfers are rare
+// phase-boundary events, so even that residual store costs nothing.
+struct TransferAccessMark
+{
+    std::atomic<bool>& flag;
+    explicit TransferAccessMark(std::atomic<bool>& f)
+        : flag(f)
+    {
+        assert(!flag.exchange(true, std::memory_order_acq_rel) &&
+               "PoolAllocator: concurrent transfer on a shared instance -- "
+               "transfer_all/transfer_free read the source unlocked, so the "
+               "same pool must not be a transfer source/destination on two "
+               "threads at once");
+    }
+    ~TransferAccessMark()
+    {
+        flag.store(false, std::memory_order_release);
+    }
+    TransferAccessMark(const TransferAccessMark&) = delete;
+    TransferAccessMark& operator=(const TransferAccessMark&) = delete;
+};
+
 } // namespace pool_allocator_detail
 
 // Default constructor
@@ -331,13 +358,14 @@ PoolAllocator<T, BlockSize>::PoolAllocator() noexcept
 template <typename T, size_t BlockSize>
 PoolAllocator<T, BlockSize>::~PoolAllocator() noexcept = default;
 
-
 template <typename T, size_t BlockSize>
 void
 PoolAllocator<T, BlockSize>::transfer_all(PoolAllocator<T, BlockSize>& from)
 {
     assert(&from != this && "Cannot import directly from self");
     std::lock_guard<std::mutex> lock(transfer_mutex);
+    pool_allocator_detail::TransferAccessMark dst_mark(in_transfer_);
+    pool_allocator_detail::TransferAccessMark src_mark(from.in_transfer_);
     allocator.transfer_all(from.allocator);
 }
 
@@ -347,6 +375,8 @@ PoolAllocator<T, BlockSize>::transfer_free(PoolAllocator<T, BlockSize>& from)
 {
     assert(&from != this && "Cannot import directly from self");
     std::lock_guard<std::mutex> lock(transfer_mutex);
+    pool_allocator_detail::TransferAccessMark dst_mark(in_transfer_);
+    pool_allocator_detail::TransferAccessMark src_mark(from.in_transfer_);
     allocator.transfer_free(from.allocator);
 }
 
