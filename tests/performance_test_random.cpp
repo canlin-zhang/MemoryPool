@@ -60,7 +60,7 @@ run_allocator_benchmark(const std::string& label, Alloc& allocator,
                 for (auto dest = ptr_vec.end() - BLOCK_SIZE; dest != ptr_vec.end() - BLOCK_SIZE / 2;
                      ++dest)
                 {
-                    auto rand_it = ptr_vec.begin() + rng() % (ptr_vec.size() - BLOCK_SIZE);
+                    auto rand_it = ptr_vec.begin() + static_cast<std::ptrdiff_t>(rng() % (ptr_vec.size() - BLOCK_SIZE));
                     std::swap(*dest, *rand_it);
                 }
             }
