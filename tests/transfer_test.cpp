@@ -51,8 +51,9 @@ struct AllocatorPrediction
     }
     constexpr AllocatorPrediction alloc(int n) const
     {
-        const size_t use_from_slots = std::min<size_t>(n, slots_avail);
-        const size_t remaining1 = n - use_from_slots;
+        const size_t un = static_cast<size_t>(n);
+        const size_t use_from_slots = std::min(un, slots_avail);
+        const size_t remaining1 = un - use_from_slots;
         const size_t use_from_bump = std::min<size_t>(remaining1, bump_avail);
         const size_t remaining2 = remaining1 - use_from_bump;
         const size_t blocks_added = ceil_div(remaining2, kSlotsPerBlock);
@@ -62,7 +63,7 @@ struct AllocatorPrediction
     }
     constexpr AllocatorPrediction dealloc(int n) const
     {
-        return AllocatorPrediction{blocks_alloc, slots_avail + n, bump_avail};
+        return AllocatorPrediction{blocks_alloc, slots_avail + static_cast<size_t>(n), bump_avail};
     }
     auto cmp_tie() const
     {
@@ -156,7 +157,7 @@ TEST_F(TransferTest, TransferFreeMovesOnlyFreeSlots)
 
     // Free a subset
     for (int i = 0; i < NUM_FREE; ++i)
-        allocator.deallocate(ptrs[i]);
+        allocator.deallocate(ptrs[static_cast<size_t>(i)]);
     EXPECT_EQ(allocator.num_slots_available(), NUM_FREE);
 
     const auto pred = AllocatorPrediction().alloc(NUM_ALLOC);
