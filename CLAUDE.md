@@ -35,7 +35,8 @@ cd build && ctest -R <test_name> --output-on-failure
 - **Pointer alignment**: left (`int* p`)
 - **Attributes**: `[[nodiscard]]` on functions returning allocated pointers; `noexcept` on non-throwing functions
 - **Comments**: `//!` for Doxygen-style class/function headlines; `//` for inline notes
-- **Naming**: `PascalCase` for classes/templates, `snake_case` for variables and member functions (STL convention)
+- **Naming**: `PascalCase` for classes/templates. `snake_case` for everything else — variables,
+  member functions, constants, and private data members. No `k` prefix, no trailing `_`.
 - **Format before committing**: `clang-format -i include/pool_allocator/*.h include/pool_allocator/*.tcc`
 
 ## Architecture

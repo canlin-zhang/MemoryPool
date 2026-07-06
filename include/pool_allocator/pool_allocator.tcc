@@ -32,6 +32,7 @@
 
 #include "pool_allocator.h"
 
+#include <cstring> // for std::memcpy
 #include <limits>
 #include <new> // for std::align_val_t
 
@@ -184,11 +185,25 @@ StackAllocator<T, Alloc>::allocate(size_t n)
 {
     if (n != 1)
         return parent.allocate(n);
-    if (free_slots.empty())
-        return parent.allocate(n);
-    pointer p = free_slots.back();
-    free_slots.pop_back();
-    return p;
+    if constexpr (use_intrusive)
+    {
+        if (free_store.free_head == nullptr)
+            return parent.allocate(n);
+        pointer p = free_store.free_head;
+        void* next;
+        std::memcpy(&next, static_cast<const void*>(p), sizeof(void*));
+        free_store.free_head = static_cast<pointer>(next);
+        --free_store.free_count;
+        return p;
+    }
+    else
+    {
+        if (free_store.free_slots.empty())
+            return parent.allocate(n);
+        pointer p = free_store.free_slots.back();
+        free_store.free_slots.pop_back();
+        return p;
+    }
 }
 
 template <typename T, typename Alloc>
@@ -200,14 +215,26 @@ StackAllocator<T, Alloc>::deallocate(pointer p, size_t n) noexcept
         parent.deallocate(p, n);
         return;
     }
-    free_slots.push_back(p);
+    if constexpr (use_intrusive)
+    {
+        std::memcpy(static_cast<void*>(p), &free_store.free_head, sizeof(void*));
+        free_store.free_head = p;
+        ++free_store.free_count;
+    }
+    else
+    {
+        free_store.free_slots.push_back(p);
+    }
 }
 
 template <typename T, typename Alloc>
 size_t
 StackAllocator<T, Alloc>::free_size() const noexcept
 {
-    return free_slots.size();
+    if constexpr (use_intrusive)
+        return free_store.free_count;
+    else
+        return free_store.free_slots.size();
 }
 
 template <typename T, typename Alloc>
@@ -216,9 +243,31 @@ StackAllocator<T, Alloc>::transfer_free(StackAllocator& from)
 {
     if (&from == this)
         return;
-    FreeSlotsContainer tmp;
-    std::swap(tmp, from.free_slots);
-    free_slots.insert(free_slots.end(), tmp.begin(), tmp.end());
+    if constexpr (use_intrusive)
+    {
+        if (from.free_store.free_head == nullptr)
+            return;
+        pointer tail = from.free_store.free_head;
+        pointer next;
+        std::memcpy(&next, static_cast<const void*>(tail), sizeof(void*));
+        while (next != nullptr)
+        {
+            tail = next;
+            std::memcpy(&next, static_cast<const void*>(tail), sizeof(void*));
+        }
+        std::memcpy(static_cast<void*>(tail), &free_store.free_head, sizeof(void*));
+        free_store.free_head = from.free_store.free_head;
+        free_store.free_count += from.free_store.free_count;
+        from.free_store.free_head = nullptr;
+        from.free_store.free_count = 0;
+    }
+    else
+    {
+        auto& v = free_store.free_slots;
+        auto& fv = from.free_store.free_slots;
+        v.insert(v.end(), fv.begin(), fv.end());
+        fv.clear();
+    }
 }
 
 template <typename T, typename Alloc>
@@ -227,11 +276,17 @@ StackAllocator<T, Alloc>::transfer_all(StackAllocator& from)
 {
     if (&from == this)
         return;
-    // Move free slots first
     transfer_free(from);
-    // Then export remaining bump slots and blocks from parent and import here
     auto [fs, blocks] = from.parent.export_all();
-    free_slots.insert(free_slots.end(), fs.begin(), fs.end());
+    if constexpr (use_intrusive)
+    {
+        for (pointer p : fs)
+            deallocate(p);
+    }
+    else
+    {
+        free_store.free_slots.insert(free_store.free_slots.end(), fs.begin(), fs.end());
+    }
     parent.import_blocks(std::move(blocks));
 }
 

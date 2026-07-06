@@ -106,15 +106,54 @@ class BumpAllocator
     BlocksContainer blocks;
 };
 
+//! SFINAE-safe trait: is sizeof(T) available AND T is smaller than a pointer?
+//! Incomplete types → false (default to intrusive — safe for any class).
+template <typename T, typename = void>
+struct is_small_type : std::false_type
+{
+};
+
+template <typename T>
+struct is_small_type<T, std::void_t<decltype(sizeof(T))>>
+    : std::bool_constant<(sizeof(T) < sizeof(void*))>
+{
+};
+
+//! Fallback free-list container for types smaller than a pointer
+//! (int, char, etc.) — uses std::vector because the slot can't hold a next pointer.
+template <typename T>
+struct SmallTypeFreeList
+{
+    std::vector<T*> free_slots;
+};
+
+//! Intrusive free-list for types that are at least pointer-sized.
+//! Each freed slot stores a next pointer in its own payload bytes — no side allocation.
+template <typename T>
+struct IntrusiveFreeList
+{
+    T* free_head = nullptr;
+    size_t free_count = 0;
+};
+
 //! Wraps another allocator with a stack so that single deallocations
 //! can be easily returned as single allocations.
+//!
+//! For sizeof(T) >= sizeof(void*): uses an intrusive singly-linked list threaded
+//! through the unused slot storage.  Deallocate, transfer_free, and transfer_all
+//! are genuinely noexcept — no side container, no allocation.
+//!
+//! For smaller types: falls back to std::vector.
 template <typename T, typename Alloc = std::allocator<T>>
 class StackAllocator
 {
+    static constexpr bool use_intrusive = !is_small_type<T>::value;
+    using FreeStore =
+        typename std::conditional<use_intrusive, IntrusiveFreeList<T>, SmallTypeFreeList<T>>::type;
+
   public:
     using value_type = T;
     using pointer = value_type*;
-    using FreeSlotsContainer = std::vector<pointer>;
 
     StackAllocator() noexcept = default;
     explicit StackAllocator(Alloc&& alloc) noexcept;
@@ -137,7 +176,7 @@ class StackAllocator
     Alloc parent;
 
   private:
-    FreeSlotsContainer free_slots;
+    FreeStore free_store;
 };
 
 // CRTP mixin that provides object helpers (construct/destroy, new/delete, make_unique)
