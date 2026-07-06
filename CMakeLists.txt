@@ -4,18 +4,20 @@ project(MemoryPool LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Strict warnings (GCC/Clang: -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror; MSVC: /W4 /WX)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror)
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+    add_compile_options(/W4 /WX)
+endif()
+
 # UBSAN options
 option(ENABLE_UBSAN "Enable Undefined Behavior Sanitizer" OFF)
 if(ENABLE_UBSAN)
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         add_compile_options(
             -fsanitize=undefined
-            -fno-sanitize-recover=all
-            -Wall
-            -Wextra
-            -Wpedantic
-            -Wconversion
-            -Wshadow)
+            -fno-sanitize-recover=all)
         add_link_options(
             -fsanitize=undefined)
     else()
@@ -29,12 +31,7 @@ if(ENABLE_ASAN)
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         add_compile_options(
             -fsanitize=address
-            -fno-omit-frame-pointer
-            -Wall
-            -Wextra
-            -Wpedantic
-            -Wconversion
-            -Wshadow)
+            -fno-omit-frame-pointer)
         add_link_options(
             -fsanitize=address)
     else()

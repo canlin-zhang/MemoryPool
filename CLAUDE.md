@@ -26,6 +26,7 @@ cd build && ctest -R <test_name> --output-on-failure
 
 ## Code Style Summary
 
+- **Warnings**: GCC/Clang: `-Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror`; MSVC: `/W4 /WX`
 - **Standard**: C++17 (`CMAKE_CXX_STANDARD 17`)
 - **Based on**: LLVM style with Allman braces (`.clang-format`)
 - **Indentation**: 4 spaces, no tabs (also in `.editorconfig`)
