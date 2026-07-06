@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 #include <cstddef>
 #include <memory>
+#include <stdexcept>
 
 // Test fundamental types
 // Test fixture: Memory pool of int, double and char
@@ -76,4 +77,21 @@ TEST_F(PoolAllocatorTest, basic_type_multiple_allocation)
         EXPECT_EQ(charPtr[i], static_cast<char>(i));
     }
     charPool.deallocate(charPtr, 256);
+}
+
+// Type whose constructor always throws — used to test exception-safety paths
+struct ThrowingType
+{
+    ThrowingType()
+    {
+        throw std::runtime_error("intentional");
+    }
+};
+
+TEST_F(PoolAllocatorTest, new_object_cleans_up_on_constructor_throw)
+{
+    PoolAllocator<ThrowingType> pool;
+    EXPECT_THROW(static_cast<void>(pool.new_object()), std::runtime_error);
+    // Pool should be usable after the failed allocation
+    EXPECT_NO_THROW(pool.allocate());
 }

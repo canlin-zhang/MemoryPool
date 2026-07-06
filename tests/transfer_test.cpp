@@ -197,6 +197,43 @@ TEST_F(TransferTest, TransferFreeNoEffectWhenNoFreeSlots)
     EXPECT_EQ(dest.allocated_bytes(), 0);
 }
 
+TEST_F(TransferTest, TransferFreeToSelfIsNoOp)
+{
+    // Test at StackAllocator level — PoolAllocator asserts on self-transfer
+    using BumpAlloc = pool_allocator_detail::BumpAllocator<int, std::allocator<int>, kBlockSize>;
+    using StackAlloc = pool_allocator_detail::StackAllocator<int, BumpAlloc>;
+    StackAlloc alloc;
+    // Allocate and free to build up free slots
+    for (int i = 0; i < 10; ++i)
+    {
+        int* p = alloc.allocate();
+        alloc.deallocate(p);
+    }
+    const size_t slots_before = alloc.free_size();
+
+    ASSERT_NO_THROW(alloc.transfer_free(alloc));
+
+    // No change
+    EXPECT_EQ(alloc.free_size(), slots_before);
+}
+
+TEST_F(TransferTest, TransferAllToSelfIsNoOp)
+{
+    using BumpAlloc = pool_allocator_detail::BumpAllocator<int, std::allocator<int>, kBlockSize>;
+    using StackAlloc = pool_allocator_detail::StackAllocator<int, BumpAlloc>;
+    StackAlloc alloc;
+    for (int i = 0; i < 10; ++i)
+    {
+        int* p = alloc.allocate();
+        alloc.deallocate(p);
+    }
+    const size_t slots_before = alloc.free_size();
+
+    ASSERT_NO_THROW(alloc.transfer_all(alloc));
+
+    EXPECT_EQ(alloc.free_size(), slots_before);
+}
+
 TEST_F(TransferTest, TransferAllThenAllocateFromDestUsesTransferredSlots)
 {
     // Allocate across multiple blocks
