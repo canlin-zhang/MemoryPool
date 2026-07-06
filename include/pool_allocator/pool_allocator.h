@@ -36,6 +36,7 @@
  * 2. Added [[nodiscard]] to export and raw pointer allocation functions
  */
 
+#include <atomic>
 #include <cassert>
 #include <cstddef>
 #include <iterator>
@@ -275,7 +276,15 @@ class PoolAllocator : public pool_allocator_detail::ObjectOpsMixin<PoolAllocator
     // Mutex protecting this allocator as a transfer destination.
     // Only locked by transfer_all/transfer_free on the destination side;
     // the source is assumed to be accessed only by its owning thread.
-    mutable std::mutex transfer_mutex;
+    std::mutex transfer_mutex;
+
+    // Set while this instance participates in a transfer (as source or
+    // destination). transfer_all/transfer_free read the source unlocked, so two
+    // threads transferring with a shared source (or a source that is another's
+    // destination) is a data race. The debug assert in transfer_all/_free trips
+    // on that overlap; the flag itself is always present so debug and release
+    // share one layout.
+    std::atomic<bool> in_transfer_{false};
 };
 
 // Operators

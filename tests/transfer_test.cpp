@@ -1,10 +1,12 @@
 #include "pool_allocator/pool_allocator.h"
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <fstream>
 #include <gtest/gtest.h>
 #include <random>
 #include <string>
+#include <thread>
 #include <tuple>
 #include <vector>
 
@@ -418,4 +420,46 @@ TEST(TransferRandomized, RandomSequenceMatchesPrediction)
     }
     check(A, mA);
     check(B, mB);
+}
+
+// The transfer_mutex exists so many workers can transfer into one destination
+// concurrently. The debug reentrancy tripwire must permit exactly that (each
+// worker has its own source; the shared destination is serialized by the mutex)
+// without firing, and all blocks must land in the destination.
+TEST(TransferConcurrency, ConcurrentSameDestinationDoesNotTrip)
+{
+    constexpr int NUM_THREADS = 8;
+    constexpr int ALLOCS = 20;
+
+    TestAlloc dest;
+    std::array<TestAlloc, NUM_THREADS> sources;
+
+    // Pre-fill each source with blocks (allocate then free) on the main thread,
+    // before any concurrent transfer begins. transfer_all folds both the free
+    // list and the unbumped remainder of each source into the destination's
+    // free list, so the expected destination total is slots + bump per source.
+    size_t total_free = 0;
+    for (auto& s : sources)
+    {
+        std::vector<int*> ptrs;
+        for (int i = 0; i < ALLOCS; ++i)
+            ptrs.push_back(s.allocate());
+        for (int* p : ptrs)
+            s.deallocate(p);
+        total_free += s.num_slots_available() + s.num_bump_available();
+    }
+
+    std::vector<std::thread> workers;
+    for (auto& s : sources)
+        workers.emplace_back([&dest, &s]() { dest.transfer_all(s); });
+    for (auto& w : workers)
+        w.join();
+
+    // Every source emptied into the destination; the tripwire never fired.
+    for (auto& s : sources)
+    {
+        EXPECT_EQ(s.allocated_bytes(), 0u);
+        EXPECT_EQ(s.num_slots_available(), 0u);
+    }
+    EXPECT_EQ(dest.num_slots_available(), total_free);
 }

@@ -7,7 +7,6 @@ FetchContent_declare(
 )
 # For Windows: Prevent overriding the parent project's compiler/linker settings
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-set(gtest_disable_pthreads ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
 # Glob all test source files
