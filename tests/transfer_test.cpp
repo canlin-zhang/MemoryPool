@@ -51,8 +51,9 @@ struct AllocatorPrediction
     }
     constexpr AllocatorPrediction alloc(int n) const
     {
-        const size_t use_from_slots = std::min<size_t>(n, slots_avail);
-        const size_t remaining1 = n - use_from_slots;
+        const size_t un = static_cast<size_t>(n);
+        const size_t use_from_slots = std::min(un, slots_avail);
+        const size_t remaining1 = un - use_from_slots;
         const size_t use_from_bump = std::min<size_t>(remaining1, bump_avail);
         const size_t remaining2 = remaining1 - use_from_bump;
         const size_t blocks_added = ceil_div(remaining2, kSlotsPerBlock);
@@ -62,7 +63,7 @@ struct AllocatorPrediction
     }
     constexpr AllocatorPrediction dealloc(int n) const
     {
-        return AllocatorPrediction{blocks_alloc, slots_avail + n, bump_avail};
+        return AllocatorPrediction{blocks_alloc, slots_avail + static_cast<size_t>(n), bump_avail};
     }
     auto cmp_tie() const
     {
@@ -156,26 +157,20 @@ TEST_F(TransferTest, TransferFreeMovesOnlyFreeSlots)
 
     // Free a subset
     for (int i = 0; i < NUM_FREE; ++i)
-        allocator.deallocate(ptrs[i]);
+        allocator.deallocate(ptrs[static_cast<size_t>(i)]);
     EXPECT_EQ(allocator.num_slots_available(), NUM_FREE);
 
-    const auto pred = AllocatorPrediction().alloc(NUM_ALLOC);
-    EXPECT_EQ(allocator.allocated_bytes(), pred.bytes());
+    const auto pred_src = AllocatorPrediction().alloc(NUM_ALLOC).dealloc(NUM_FREE);
+    EXPECT_EQ(pred_src, AllocatorPrediction::of_ta(allocator));
 
     TestAlloc dest;
-    EXPECT_EQ(dest.allocated_bytes(), 0);
-    EXPECT_EQ(dest.num_slots_available(), 0);
 
     // Transfer only free slots
     ASSERT_NO_THROW(dest.transfer_free(allocator));
 
-    // Source keeps its blocks; free list emptied
-    EXPECT_EQ(allocator.allocated_bytes(), pred.bytes());
-    EXPECT_EQ(allocator.num_slots_available(), 0);
-
-    // Dest gets only the free slots; no blocks moved
-    EXPECT_EQ(dest.allocated_bytes(), 0);
-    EXPECT_EQ(dest.num_slots_available(), NUM_FREE);
+    auto [to, from] = transfer_pool({AllocatorPrediction(), pred_src});
+    EXPECT_EQ(from, AllocatorPrediction::of_ta(allocator));
+    EXPECT_EQ(to, AllocatorPrediction::of_ta(dest));
 
     // Allocating from dest consumes transferred free slots
     std::vector<int*> got;

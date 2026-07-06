@@ -10,10 +10,17 @@
 class PoolAllocatorTest : public ::testing::Test
 {
   public:
+#ifdef _MSC_VER
+# pragma warning(push)
+# pragma warning(disable : 4324) // structure padded due to alignment — intentional test case
+#endif
     struct alignas(64) AlignedStruct
     {
         char x;
     };
+#ifdef _MSC_VER
+# pragma warning(pop)
+#endif
 
   protected:
     PoolAllocator<std::string> stringPool;
