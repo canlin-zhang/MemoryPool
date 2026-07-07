@@ -52,3 +52,6 @@ MemoryPool_test
 
 # clang-tidy output
 /clang-tidy-fixes.patch
+
+# Superpowers working docs (plans/specs) — local only, not part of the repo
+/docs/superpowers/

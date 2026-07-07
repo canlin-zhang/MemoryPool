@@ -199,9 +199,9 @@ TEST_F(TransferTest, TransferFreeNoEffectWhenNoFreeSlots)
 
 TEST_F(TransferTest, TransferFreeToSelfIsNoOp)
 {
-    // Test at StackAllocator level — PoolAllocator asserts on self-transfer
-    using BumpAlloc = pool_allocator_detail::BumpAllocator<int, std::allocator<int>, kBlockSize>;
-    using StackAlloc = pool_allocator_detail::StackAllocator<int, BumpAlloc>;
+    // Test at FreeSlotStore level — PoolAllocator asserts on self-transfer
+    using BumpAlloc = pool_allocator_detail::BlockStore<int, std::allocator<int>, kBlockSize>;
+    using StackAlloc = pool_allocator_detail::FreeSlotStore<int, BumpAlloc>;
     StackAlloc alloc;
     // Allocate and free to build up free slots
     for (int i = 0; i < 10; ++i)
@@ -219,8 +219,8 @@ TEST_F(TransferTest, TransferFreeToSelfIsNoOp)
 
 TEST_F(TransferTest, TransferAllToSelfIsNoOp)
 {
-    using BumpAlloc = pool_allocator_detail::BumpAllocator<int, std::allocator<int>, kBlockSize>;
-    using StackAlloc = pool_allocator_detail::StackAllocator<int, BumpAlloc>;
+    using BumpAlloc = pool_allocator_detail::BlockStore<int, std::allocator<int>, kBlockSize>;
+    using StackAlloc = pool_allocator_detail::FreeSlotStore<int, BumpAlloc>;
     StackAlloc alloc;
     for (int i = 0; i < 10; ++i)
     {
@@ -232,6 +232,22 @@ TEST_F(TransferTest, TransferAllToSelfIsNoOp)
     ASSERT_NO_THROW(alloc.transfer_all(alloc));
 
     EXPECT_EQ(alloc.free_size(), slots_before);
+}
+
+TEST_F(TransferTest, TransferBlocksToSelfIsNoOp)
+{
+    // BlockStore::transfer_blocks has its own self-guard, reached only by a
+    // direct store-level call (FreeSlotStore::transfer_all returns early on self
+    // before delegating). Exercise it directly.
+    using BumpAlloc = pool_allocator_detail::BlockStore<int, std::allocator<int>, kBlockSize>;
+    BumpAlloc blocks;
+    for (int i = 0; i < 40; ++i) // populate several blocks
+        ASSERT_NE(blocks.allocate(), nullptr);
+    const size_t bytes_before = blocks.allocated_bytes();
+
+    ASSERT_NO_THROW(blocks.transfer_blocks(blocks));
+
+    EXPECT_EQ(blocks.allocated_bytes(), bytes_before);
 }
 
 TEST_F(TransferTest, TransferAllThenAllocateFromDestUsesTransferredSlots)
@@ -274,15 +290,22 @@ TEST_F(TransferTest, TransferAllThenAllocateFromDestUsesTransferredSlots)
         dest.deallocate(p);
 }
 
-// Randomized sequence test verifying allocator state against a simple model
-TEST(TransferRandomized, RandomSequenceMatchesPrediction)
+// Randomized sequence test verifying allocator state against a simple model.
+// Templated over the allocator so it runs against both the Fast (vector) and
+// Noexcept (list) backends. `usable_per_block` is the number of carve-able slots
+// per block (Fast: BlockSize/sizeof(T); Noexcept: that minus the reserved slot 0).
+template <typename Alloc>
+void
+run_randomized_model(size_t usable_per_block, size_t block_size)
 {
+    using Ptr = typename Alloc::value_type*;
     std::mt19937 rng(1337u);
     std::uniform_int_distribution<int> opDist(0, 9); // choose among 10 operations
     constexpr int kIters = 1000;
 
     struct Model
     {
+        size_t usable_per_block;
         int blocks_alloc = 0;
         int slots_avail = 0;
         int bump_avail = 0;
@@ -299,7 +322,8 @@ TEST(TransferRandomized, RandomSequenceMatchesPrediction)
             else
             {
                 ++blocks_alloc;
-                bump_avail = kSlotsPerBlock - 1; // consume one slot from the new block
+                // consume one slot from the new block
+                bump_avail = static_cast<int>(usable_per_block) - 1;
             }
         }
         void dealloc_one()
@@ -319,15 +343,15 @@ TEST(TransferRandomized, RandomSequenceMatchesPrediction)
             slots_avail = 0;
             bump_avail = 0;
         }
-    } mA, mB;
+    } mA{usable_per_block}, mB{usable_per_block};
 
-    TestAlloc A, B;
-    std::vector<int*> liveA;
-    std::vector<int*> liveB;
+    Alloc A, B;
+    std::vector<Ptr> liveA;
+    std::vector<Ptr> liveB;
 
-    auto check = [&](const TestAlloc& real, const Model& m)
+    auto check = [&](const Alloc& real, const Model& m)
     {
-        EXPECT_EQ(real.allocated_bytes(), static_cast<size_t>(m.blocks_alloc) * kBlockSize);
+        EXPECT_EQ(real.allocated_bytes(), static_cast<size_t>(m.blocks_alloc) * block_size);
         EXPECT_EQ(real.num_slots_available(), static_cast<size_t>(m.slots_avail));
         EXPECT_EQ(real.num_bump_available(), static_cast<size_t>(m.bump_avail));
     };
@@ -339,7 +363,7 @@ TEST(TransferRandomized, RandomSequenceMatchesPrediction)
         {
         case 0: // alloc A
         {
-            int* p = A.allocate();
+            Ptr p = A.allocate();
             ASSERT_NE(p, nullptr);
             liveA.push_back(p);
             mA.alloc_one();
@@ -347,7 +371,7 @@ TEST(TransferRandomized, RandomSequenceMatchesPrediction)
         }
         case 1: // alloc B
         {
-            int* p = B.allocate();
+            Ptr p = B.allocate();
             ASSERT_NE(p, nullptr);
             liveB.push_back(p);
             mB.alloc_one();
@@ -359,7 +383,7 @@ TEST(TransferRandomized, RandomSequenceMatchesPrediction)
             {
                 std::uniform_int_distribution<size_t> idx(0, liveA.size() - 1);
                 size_t i = idx(rng);
-                int* p = liveA[i];
+                Ptr p = liveA[i];
                 A.deallocate(p);
                 liveA[i] = liveA.back();
                 liveA.pop_back();
@@ -373,7 +397,7 @@ TEST(TransferRandomized, RandomSequenceMatchesPrediction)
             {
                 std::uniform_int_distribution<size_t> idx(0, liveB.size() - 1);
                 size_t i = idx(rng);
-                int* p = liveB[i];
+                Ptr p = liveB[i];
                 B.deallocate(p);
                 liveB[i] = liveB.back();
                 liveB.pop_back();
@@ -415,7 +439,7 @@ TEST(TransferRandomized, RandomSequenceMatchesPrediction)
         {
             for (int i = 0; i < 10; ++i)
             {
-                int* p = A.allocate();
+                Ptr p = A.allocate();
                 ASSERT_NE(p, nullptr);
                 liveA.push_back(p);
                 mA.alloc_one();
@@ -426,7 +450,7 @@ TEST(TransferRandomized, RandomSequenceMatchesPrediction)
         {
             for (int i = 0; i < 10; ++i)
             {
-                int* p = B.allocate();
+                Ptr p = B.allocate();
                 ASSERT_NE(p, nullptr);
                 liveB.push_back(p);
                 mB.alloc_one();
@@ -440,12 +464,12 @@ TEST(TransferRandomized, RandomSequenceMatchesPrediction)
     }
 
     // Cleanup
-    for (int* p : liveA)
+    for (Ptr p : liveA)
     {
         A.deallocate(p);
         mA.dealloc_one();
     }
-    for (int* p : liveB)
+    for (Ptr p : liveB)
     {
         B.deallocate(p);
         mB.dealloc_one();
@@ -454,10 +478,28 @@ TEST(TransferRandomized, RandomSequenceMatchesPrediction)
     check(B, mB);
 }
 
-// The transfer_mutex exists so many workers can transfer into one destination
-// concurrently. The debug reentrancy tripwire must permit exactly that (each
-// worker has its own source; the shared destination is serialized by the mutex)
-// without firing, and all blocks must land in the destination.
+TEST(TransferRandomized, FastMatchesPrediction)
+{
+    run_randomized_model<PoolAllocator<value_type, kBlockSize>>(kSlotsPerBlock, kBlockSize);
+}
+
+TEST(TransferRandomized, NoexceptMatchesPrediction)
+{
+    // 16-byte element (>= sizeof(T*)); 256-byte block -> 16 slots/block, of
+    // which slot 0 is the block-chain link, leaving 15 usable.
+    struct Big16
+    {
+        alignas(void*) unsigned char bytes[16];
+    };
+    constexpr size_t kNoexceptBlock = 256;
+    using NoexceptAlloc = PoolAllocator<Big16, kNoexceptBlock, TransferMode::Noexcept>;
+    run_randomized_model<NoexceptAlloc>(kNoexceptBlock / sizeof(Big16) - 1, kNoexceptBlock);
+}
+
+// The destination spinlock exists so many workers can transfer into one
+// destination concurrently. The debug reentrancy tripwire must permit exactly
+// that (each worker has its own source; the shared destination is serialized by
+// the spinlock) without firing, and all blocks must land in the destination.
 TEST(TransferConcurrency, ConcurrentSameDestinationDoesNotTrip)
 {
     constexpr int NUM_THREADS = 8;
@@ -483,11 +525,51 @@ TEST(TransferConcurrency, ConcurrentSameDestinationDoesNotTrip)
 
     std::vector<std::thread> workers;
     for (auto& s : sources)
-        workers.emplace_back([&dest, &s]() { dest.transfer_all(s); });
+        workers.emplace_back([&dest, src = &s]() { dest.transfer_all(*src); });
     for (auto& w : workers)
         w.join();
 
     // Every source emptied into the destination; the tripwire never fired.
+    for (auto& s : sources)
+    {
+        EXPECT_EQ(s.allocated_bytes(), 0u);
+        EXPECT_EQ(s.num_slots_available(), 0u);
+    }
+    EXPECT_EQ(dest.num_slots_available(), total_free);
+}
+
+// Same concurrent-destination scenario on the Noexcept backend, exercising the
+// noexcept spinlock under contention (the reason it replaced std::mutex).
+TEST(TransferConcurrency, NoexceptSameDestinationSpinlock)
+{
+    struct Big16
+    {
+        alignas(void*) unsigned char bytes[16];
+    };
+    using Pool = PoolAllocator<Big16, 256, TransferMode::Noexcept>;
+    constexpr int NUM_THREADS = 8;
+    constexpr int ALLOCS = 20;
+
+    Pool dest;
+    std::array<Pool, NUM_THREADS> sources;
+
+    size_t total_free = 0;
+    for (auto& s : sources)
+    {
+        std::vector<Big16*> ptrs;
+        for (int i = 0; i < ALLOCS; ++i)
+            ptrs.push_back(s.allocate());
+        for (Big16* p : ptrs)
+            s.deallocate(p);
+        total_free += s.num_slots_available() + s.num_bump_available();
+    }
+
+    std::vector<std::thread> workers;
+    for (auto& s : sources)
+        workers.emplace_back([&dest, src = &s]() { dest.transfer_all(*src); });
+    for (auto& w : workers)
+        w.join();
+
     for (auto& s : sources)
     {
         EXPECT_EQ(s.allocated_bytes(), 0u);
