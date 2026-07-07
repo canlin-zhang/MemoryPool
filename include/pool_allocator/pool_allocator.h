@@ -32,7 +32,7 @@
  *
  * Modifed by Eric Norige
  * Changes:
- * 1. Separated PoolAllocator logic cleanly into BumpAllocator and StackAllocator
+ * 1. Separated PoolAllocator logic cleanly into BlockStore and FreeSlotStore
  * 2. Added [[nodiscard]] to export and raw pointer allocation functions
  */
 
@@ -41,9 +41,20 @@
 #include <cstddef>
 #include <iterator>
 #include <memory>
-#include <mutex>
+#include <type_traits>
 #include <utility>
 #include <vector>
+
+//! Transfer mode policy for transfer_all/transfer_free. `Fast` uses vector-backed
+//! stores (transfer may throw on allocation). `Noexcept` uses list-backed stores
+//! plus a non-throwing spinlock, so the transfer allocates nothing and takes no
+//! throwing lock — the API is declared `noexcept` in that mode. Requires
+//! sizeof(T) >= sizeof(T*).
+enum class TransferMode
+{
+    Fast,
+    Noexcept
+};
 
 // Internal helper for lazy bump allocation of a single contiguous block
 namespace pool_allocator_detail
@@ -56,72 +67,186 @@ struct BumpBlock
     bool empty() const noexcept;
     size_t remaining() const noexcept;
     Pointer allocate_one() noexcept;
-    // Move any remaining slots into a free list vector and reset.
-    template <typename Vec>
-    void export_remaining(Vec& out);
+    // Return the un-carved range [next, end) and reset the bump. noexcept.
+    std::pair<Pointer, Pointer> take_range() noexcept;
 
   private:
     Pointer next = nullptr; // next un-split slot
     Pointer end = nullptr;  // one-past-the-last slot in the current block
 };
 
+//! Singly-linked list of T-sized slots whose link (a T*) is stored inline in
+//! each slot's own bytes (no separate nodes), so push/pop/splice allocate
+//! nothing and are noexcept. Requires sizeof(T) >= sizeof(T*). Backs a store
+//! under the Noexcept transfer policy.
+template <typename T>
+struct SlotList
+{
+    static_assert(sizeof(T) >= sizeof(T*),
+                  "SlotList stores a T* link in each slot; needs sizeof(T) >= sizeof(T*)");
+
+    // Backend traits (read by the stores; see backend_for).
+    static constexpr size_t slots_per_block_overhead = 1; // link lives in the block's slot 0
+    static constexpr bool nothrow_transfer = true;        // push/pop/splice allocate nothing
+
+    SlotList() noexcept = default;
+    SlotList(const SlotList&) = delete;
+    SlotList& operator=(const SlotList&) = delete;
+    SlotList(SlotList&& o) noexcept
+        : head(o.head)
+        , tail(o.tail)
+        , count(o.count)
+    {
+        o.head = o.tail = nullptr;
+        o.count = 0;
+    }
+    SlotList& operator=(SlotList&& o) noexcept
+    {
+        if (this != &o)
+        {
+            head = o.head;
+            tail = o.tail;
+            count = o.count;
+            o.head = o.tail = nullptr;
+            o.count = 0;
+        }
+        return *this;
+    }
+
+    void push(T* slot) noexcept;
+    void reserve(size_t) noexcept
+    {
+    } // a list never reallocates: nothing to reserve
+    T* pop() noexcept;
+    bool empty() const noexcept
+    {
+        return head == nullptr;
+    }
+    size_t size() const noexcept
+    {
+        return count;
+    }
+    // Move all of `from`'s slots onto this list; `from` left empty. O(1), noexcept.
+    void splice(SlotList& from) noexcept;
+
+  private:
+    T* head = nullptr;
+    T* tail = nullptr;
+    size_t count = 0;
+};
+
+//! Vector-backed twin of SlotList with the same interface. Backs a store under
+//! the Fast transfer policy; push/splice may throw (allocation), matching the
+//! library's historical behavior.
+template <typename T>
+struct SlotVector
+{
+    // Backend traits (read by the stores; see backend_for).
+    static constexpr size_t slots_per_block_overhead = 0; // block pointers held out-of-line
+    static constexpr bool nothrow_transfer = false;       // push/splice may reallocate
+
+    void reserve(size_t additional)
+    {
+        slots.reserve(slots.size() + additional);
+    }
+    void push(T* slot)
+    {
+        slots.push_back(slot);
+    }
+    T* pop() noexcept
+    {
+        T* p = slots.back();
+        slots.pop_back();
+        return p;
+    }
+    bool empty() const noexcept
+    {
+        return slots.empty();
+    }
+    size_t size() const noexcept
+    {
+        return slots.size();
+    }
+    void splice(SlotVector& from)
+    {
+        slots.insert(slots.end(), from.slots.begin(), from.slots.end());
+        from.slots.clear();
+    }
+
+  private:
+    std::vector<T*> slots;
+};
+
+//! The single point that decodes the public TransferMode enum into a concrete
+//! store backend type. The stores below are parameterized on that backend type,
+//! never on the mode; adding a mode is a new specialization here.
+template <TransferMode Mode, typename T>
+struct backend_for
+{
+    using type = SlotVector<T>;
+};
+template <typename T>
+struct backend_for<TransferMode::Noexcept, T>
+{
+    using type = SlotList<T>;
+};
+
 //! A basic bump allocator; uses an underlying allocator to allocate blocks and
 //! bumps a pointer within that block to provide allocations.  Doesn't handle deallocations at all,
-//! so is best wrapped in StackAllocator.
-template <typename T, typename Alloc = std::allocator<T>, size_t BlockSize = 4096>
-class BumpAllocator
+//! so is best wrapped in FreeSlotStore.
+template <typename T, typename Alloc = std::allocator<T>, size_t BlockSize = 4096,
+          typename Blocks = SlotVector<T>>
+class BlockStore
 {
   public:
     /* Member types */
     using value_type = T;
     using pointer = T*;
     using block_pointer = T*;
-    using BlocksContainer = std::vector<block_pointer>;
-    using FreeSlotsContainer = std::vector<pointer>;
+    // True when the block-chain backend's transfer ops allocate nothing.
+    static constexpr bool nothrow_transfer = Blocks::nothrow_transfer;
 
-    BumpAllocator() noexcept = default;
-    BumpAllocator(const BumpAllocator&) = delete;
-    BumpAllocator(BumpAllocator&&) noexcept = default;
-    BumpAllocator& operator=(const BumpAllocator&) = delete;
-    BumpAllocator& operator=(BumpAllocator&&) noexcept = default;
-    explicit BumpAllocator(Alloc&& alloc) noexcept;
+    BlockStore() noexcept = default;
+    BlockStore(const BlockStore&) = delete;
+    BlockStore(BlockStore&&) noexcept = default;
+    BlockStore& operator=(const BlockStore&) = delete;
+    BlockStore& operator=(BlockStore&&) noexcept = default;
+    explicit BlockStore(Alloc&& alloc) noexcept;
 
     [[nodiscard]] pointer allocate(size_t n = 1);
     void deallocate(pointer p, size_t n = 1) noexcept;
 
-    ~BumpAllocator() noexcept;
+    ~BlockStore() noexcept;
     // Metrics
     size_t allocated_bytes() const noexcept;
     size_t bump_remaining() const noexcept;
-    // Export: move remaining bump slots to free list and move blocks out.
-    // New overload that returns the exported value.
-    [[nodiscard]] std::pair<FreeSlotsContainer, BlocksContainer> export_all();
-    // Import: take ownership of blocks (for accounting and destruction). Bump remains empty.
-    void import_blocks(BlocksContainer&& in_blocks);
+    // Return the current block's un-carved slots and reset the bump. noexcept.
+    std::pair<pointer, pointer> take_bump_range() noexcept;
+    // Splice `from`'s blocks into this store. noexcept when the backend's ops don't allocate.
+    void transfer_blocks(BlockStore& from) noexcept(Blocks::nothrow_transfer);
 
     Alloc parent;
 
   private:
     BumpBlock<pointer> bump;
-    BlocksContainer blocks;
+    Blocks blocks;
 };
 
 //! Wraps another allocator with a stack so that single deallocations
 //! can be easily returned as single allocations.
-template <typename T, typename Alloc = std::allocator<T>>
-class StackAllocator
+template <typename T, typename Alloc = std::allocator<T>, typename FreeStore = SlotVector<T>>
+class FreeSlotStore
 {
   public:
     using value_type = T;
     using pointer = value_type*;
-    using FreeSlotsContainer = std::vector<pointer>;
 
-    StackAllocator() noexcept = default;
-    explicit StackAllocator(Alloc&& alloc) noexcept;
-    StackAllocator(const StackAllocator&) = delete;
-    StackAllocator(StackAllocator&&) noexcept = default;
-    StackAllocator& operator=(const StackAllocator&) = delete;
-    StackAllocator& operator=(StackAllocator&&) noexcept = default;
+    FreeSlotStore() noexcept = default;
+    explicit FreeSlotStore(Alloc&& alloc) noexcept;
+    FreeSlotStore(const FreeSlotStore&) = delete;
+    FreeSlotStore(FreeSlotStore&&) noexcept = default;
+    FreeSlotStore& operator=(const FreeSlotStore&) = delete;
+    FreeSlotStore& operator=(FreeSlotStore&&) noexcept = default;
 
     [[nodiscard]] pointer allocate(size_t n = 1);
 
@@ -130,14 +255,15 @@ class StackAllocator
     // Metrics
     size_t free_size() const noexcept;
 
-    // Transfer APIs
-    void transfer_free(StackAllocator& from);
-    void transfer_all(StackAllocator& from);
+    // Transfer APIs. noexcept when the backends' transfer ops allocate nothing.
+    void transfer_free(FreeSlotStore& from) noexcept(FreeStore::nothrow_transfer);
+    void transfer_all(FreeSlotStore& from) noexcept(FreeStore::nothrow_transfer &&
+                                                    Alloc::nothrow_transfer);
 
     Alloc parent;
 
   private:
-    FreeSlotsContainer free_slots;
+    FreeStore free_store;
 };
 
 // CRTP mixin that provides object helpers (construct/destroy, new/delete, make_unique)
@@ -166,9 +292,10 @@ class ObjectOpsMixin
 
 } // namespace pool_allocator_detail
 
-// PoolAllocator combines a bump allocator with a stack allocator
-template <typename T, size_t BlockSize = 4096>
-class PoolAllocator : public pool_allocator_detail::ObjectOpsMixin<PoolAllocator<T, BlockSize>, T>
+// PoolAllocator combines a block store with a free-slot store
+template <typename T, size_t BlockSize = 4096, TransferMode Mode = TransferMode::Fast>
+class PoolAllocator
+    : public pool_allocator_detail::ObjectOpsMixin<PoolAllocator<T, BlockSize, Mode>, T>
 {
   public:
     /* Member types */
@@ -193,7 +320,7 @@ class PoolAllocator : public pool_allocator_detail::ObjectOpsMixin<PoolAllocator
     PoolAllocator(const PoolAllocator& other) = delete;
     PoolAllocator(PoolAllocator&& other) = delete;
     template <class U>
-    PoolAllocator(const PoolAllocator<U, BlockSize>& other) = delete;
+    PoolAllocator(const PoolAllocator<U, BlockSize, Mode>& other) = delete;
     PoolAllocator& operator=(const PoolAllocator& other) = delete;
     PoolAllocator& operator=(PoolAllocator&& other) = delete;
 
@@ -243,40 +370,49 @@ class PoolAllocator : public pool_allocator_detail::ObjectOpsMixin<PoolAllocator
         return allocator.parent.allocated_bytes();
     }
 
-    // Get total number of free slots in StackAllocator
+    // Get total number of free slots in FreeSlotStore
     inline size_type num_slots_available() const noexcept
     {
         return allocator.free_size();
     }
 
-    // Get number of slots in BumpBlock of BumpAllocator
+    // Get number of slots in BumpBlock of BlockStore
     inline size_type num_bump_available() const noexcept
     {
         return allocator.parent.bump_remaining();
     }
 
     // Transfer free slots from another allocator.
-    // Locks this allocator's mutex (destination). The caller must be the owning
+    // Locks this allocator's spinlock (destination). The caller must be the owning
     // thread of `from` (source) — no lock is taken on the source.
-    void transfer_free(PoolAllocator<T, BlockSize>& from);
+    void transfer_free(PoolAllocator<T, BlockSize, Mode>& from) noexcept(Mode ==
+                                                                         TransferMode::Noexcept);
 
     // Transfer all memory blocks and free slots from another allocator.
-    // Locks this allocator's mutex (destination). The caller must be the owning
+    // Locks this allocator's spinlock (destination). The caller must be the owning
     // thread of `from` (source) — no lock is taken on the source.
-    void transfer_all(PoolAllocator<T, BlockSize>& from);
+    void transfer_all(PoolAllocator<T, BlockSize, Mode>& from) noexcept(Mode ==
+                                                                        TransferMode::Noexcept);
 
   private:
-    // Compose a free-list stack allocator over a bump allocator for backing blocks.
-    using BumpAlloc = pool_allocator_detail::BumpAllocator<T, std::allocator<T>, BlockSize>;
-    using ComboAlloc = pool_allocator_detail::StackAllocator<T, BumpAlloc>;
+    // Decode the public Mode enum into a backend type once, then compose a
+    // free-slot store over a block store, both parameterized on that backend.
+    using Backend = typename pool_allocator_detail::backend_for<Mode, T>::type;
+    using BumpAlloc = pool_allocator_detail::BlockStore<T, std::allocator<T>, BlockSize, Backend>;
+    using ComboAlloc = pool_allocator_detail::FreeSlotStore<T, BumpAlloc, Backend>;
 
     // No explicit export/import API; transfer functions call underlying allocator ops directly
     ComboAlloc allocator; // owns BlockAlloc internally and free list on top
 
-    // Mutex protecting this allocator as a transfer destination.
-    // Only locked by transfer_all/transfer_free on the destination side;
-    // the source is assumed to be accessed only by its owning thread.
-    std::mutex transfer_mutex;
+    // Spinlock protecting this allocator as a transfer destination, used for
+    // BOTH transfer modes. A spinlock (not std::mutex) because its lock/unlock
+    // are noexcept: that is what lets transfer_all/transfer_free be noexcept
+    // under TransferMode::Noexcept (std::mutex::lock may throw). Fast mode uses
+    // the same spinlock; its transfer can still throw, but from the vector
+    // splice, never from the lock. The critical section is only a few pointer
+    // splices. Only taken on the destination side; the source is assumed to be
+    // accessed only by its owning thread.
+    std::atomic<bool> transfer_lock{false};
 
     // Set while this instance participates in a transfer (as source or
     // destination). transfer_all/transfer_free read the source unlocked, so two
@@ -289,16 +425,18 @@ class PoolAllocator : public pool_allocator_detail::ObjectOpsMixin<PoolAllocator
 
 // Operators
 // Only two references to the same allocator are equal
-template <typename T, size_t BlockSize>
+template <typename T, size_t BlockSize, TransferMode Mode>
 inline bool
-operator==(const PoolAllocator<T, BlockSize>& a, const PoolAllocator<T, BlockSize>& b) noexcept
+operator==(const PoolAllocator<T, BlockSize, Mode>& a,
+           const PoolAllocator<T, BlockSize, Mode>& b) noexcept
 {
     return &a == &b;
 }
 
-template <typename T, size_t BlockSize>
+template <typename T, size_t BlockSize, TransferMode Mode>
 inline bool
-operator!=(const PoolAllocator<T, BlockSize>& a, const PoolAllocator<T, BlockSize>& b) noexcept
+operator!=(const PoolAllocator<T, BlockSize, Mode>& a,
+           const PoolAllocator<T, BlockSize, Mode>& b) noexcept
 {
     return !(a == b);
 }
